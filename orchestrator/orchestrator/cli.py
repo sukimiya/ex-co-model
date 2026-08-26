@@ -11,6 +11,7 @@ from pydantic import ValidationError
 from orchestrator.config import load_env
 from orchestrator.errors import OrchestratorError
 from orchestrator.llm import LLMClient, MoonshotClient
+from orchestrator.pipeline import build_and_render
 from orchestrator.session import Session
 
 
@@ -22,12 +23,13 @@ def main(argv: list[str] | None = None, llm: LLMClient | None = None) -> int:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--session", type=Path, default=Path(".exco/session.json"))
     common.add_argument("--parts", type=Path, default=Path("parts"))
+    common.add_argument("--workdir", type=Path, default=Path(".exco/build"))
 
     a = sub.add_parser("apply", parents=[common], help="apply a natural-language instruction")
     a.add_argument("instruction")
-    b = sub.add_parser("build", parents=[common], help="build the current tree to fbx")
-    b.add_argument("--workdir", type=Path, default=Path(".exco/build"))
+    sub.add_parser("build", parents=[common], help="build the current tree to fbx")
     sub.add_parser("show", parents=[common], help="print the current tree")
+    sub.add_parser("preview", parents=[common], help="build and render a preview png")
 
     args = parser.parse_args(argv)
 
@@ -57,6 +59,11 @@ def main(argv: list[str] | None = None, llm: LLMClient | None = None) -> int:
                            for k, v in session.tree.nodes.items()}},
                 indent=2,
             ))
+        elif args.cmd == "preview":
+            png = build_and_render(
+                session, args.workdir,
+                args.parts if args.parts.exists() else None)
+            print(png)
     except (OrchestratorError, OpTreeError, json.JSONDecodeError, ValidationError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
