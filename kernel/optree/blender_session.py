@@ -20,9 +20,23 @@ def run_blender_script(script: str, workdir: Path) -> None:
     workdir.mkdir(parents=True, exist_ok=True)
     script_path = workdir / "_session.py"
     script_path.write_text(script, encoding="utf-8")
+    # blender exits 0 even when --python raises; wrap the session script in a
+    # runner that exits non-zero on any exception so failures are detectable.
+    runner_path = workdir / "_runner.py"
+    runner = (
+        "import runpy, sys, traceback\n"
+        "try:\n"
+        f"    runpy.run_path({str(script_path)!r})\n"
+        "except SystemExit:\n"
+        "    raise\n"
+        "except BaseException:\n"
+        "    traceback.print_exc()\n"
+        "    sys.exit(1)\n"
+    )
+    runner_path.write_text(runner, encoding="utf-8")
     try:
         proc = subprocess.run(
-            ["blender", "-b", "--factory-startup", "--python", str(script_path)],
+            ["blender", "-b", "--factory-startup", "--python", str(runner_path)],
             capture_output=True,
             text=True,
             cwd=workdir,
