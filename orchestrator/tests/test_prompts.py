@@ -53,6 +53,17 @@ def test_build_messages_lists_available_parts():
     assert "engine_nozzle" in msgs[1]["content"]
 
 
+def test_build_messages_shows_part_metadata():
+    """Part entries carry description/mount/size one-liners, not bare names."""
+    msgs = build_messages("加一门炮", None, available_parts=[
+        "pdc_turret — point defense turret; mount: flat surface; size: 1x1x1m",
+    ])
+    user = msgs[1]["content"]
+    assert "pdc_turret — point defense turret" in user
+    assert "mount: flat surface" in user
+    assert "size: 1x1x1m" in user
+
+
 def test_build_messages_without_parts_omits_section():
     msgs = build_messages("一艘船", None)
     assert "Available parts" not in msgs[1]["content"]

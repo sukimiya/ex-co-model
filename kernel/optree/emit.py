@@ -111,23 +111,19 @@ def emit_export_fbx(out: str, src: str, p: ExportFbxParams) -> str:
 
 
 def emit_attach_part(out: str, parent: str, part_path: str, p: AttachPartParams) -> str:
-    """Import parent + library part, place the part, export combined scene.
-
-    `p.location` is in meters and `p.rotation_deg` is in degrees, both applied
-    in the parent (world) frame: the part's transform is translated/rotated
-    relative to the parent scene origin, not the part's local origin.
-    """
+    """Import parent + library part, place the part as a rigid body (meters/degrees,
+    part origin in world frame), export combined scene."""
     return (
         _import_glb(parent)
         + "bpy.ops.object.select_all(action='DESELECT')\n"
         + _import_glb(part_path)
         + "import math\n"
-        + f"loc = {_fmt_vec3(p.location)}\n"
-        + f"rot = tuple(math.radians(a) for a in {_fmt_vec3(p.rotation_deg)})\n"
-        + f"s = {_fmt_num(p.scale)}\n"
+        + "bpy.ops.object.empty_add(type='PLAIN_AXES')\n"
+        + "rig = bpy.context.active_object\n"
         + "for o in imported:\n"
-        + "    o.location = tuple(a + b for a, b in zip(o.location, loc))\n"
-        + "    o.rotation_euler = tuple(a + b for a, b in zip(o.rotation_euler, rot))\n"
-        + "    o.scale = tuple(a * s for a in o.scale)\n"
+        + "    o.parent = rig\n"
+        + f"rig.location = {_fmt_vec3(p.location)}\n"
+        + f"rig.rotation_euler = tuple(math.radians(a) for a in {_fmt_vec3(p.rotation_deg)})\n"
+        + f"rig.scale = ({_fmt_num(p.scale)},) * 3\n"
         + _export_glb(out)
     )

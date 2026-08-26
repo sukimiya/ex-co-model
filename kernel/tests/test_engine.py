@@ -123,6 +123,53 @@ def test_attach_part_injects_part_hash_into_key(tmp_path, mini_parts):
     assert node_key(node, ["hullkey"]) != k1
 
 
+def rotated_attach_tree() -> OpTree:
+    return OpTree.model_validate({
+        "nodes": {
+            "hull": {"op": "primitive", "params": {"type": "box", "size": [10, 3, 2]}},
+            "armed": {
+                "op": "attach_part",
+                "inputs": ["hull"],
+                "params": {"part": "engine_nozzle", "rotation_deg": [180, 0, 0]},
+            },
+            "out": {
+                "op": "export_fbx",
+                "inputs": ["armed"],
+                "params": {"filename": "armed.fbx"},
+            },
+        }
+    })
+
+
+@requires_blender
+def test_attach_part_rotation_is_rigid_body(tmp_path):
+    """A 180° rotation must flip the whole part, sub-objects included.
+
+    engine_nozzle's throat cylinder sits at world z ≈ +1.35 unrotated; after a
+    rigid 180° flip it must be at z ≈ -1.35. With per-mesh (non-rigid)
+    transforms every mesh rotates about its own origin and no origin moves.
+    """
+    import subprocess
+    repo_parts = __import__("pathlib").Path(__file__).parent.parent.parent / "parts"
+    result = build(rotated_attach_tree(), tmp_path / "w", parts_dir=repo_parts)
+    probe = tmp_path / "probe.py"
+    zs_file = tmp_path / "zs.txt"
+    probe.write_text(
+        "import bpy\n"
+        "bpy.ops.wm.read_factory_settings(use_empty=True)\n"
+        f"bpy.ops.import_scene.gltf(filepath={str(result.glbs['armed'])!r})\n"
+        "zs = [o.matrix_world.translation.z\n"
+        "      for o in bpy.context.scene.objects if o.type == 'MESH']\n"
+        f"open({str(zs_file)!r}, 'w').write('\\n'.join(str(z) for z in zs))\n"
+    )
+    subprocess.run(
+        ["blender", "-b", "--factory-startup", "--python", str(probe)],
+        check=True, capture_output=True,
+    )
+    zs = [float(line) for line in zs_file.read_text().splitlines()]
+    assert min(zs) < -1.0  # throat cylinder flipped below the part origin
+
+
 @requires_blender
 def test_build_with_real_library(tmp_path):
     """End-to-end: attach a real library part, export fbx containing 2+ objects."""

@@ -88,3 +88,27 @@ def test_build_passes_parts_dir(tmp_path):
     assert main(["build", "--session", str(session),
                  "--workdir", str(tmp_path / "b"), "--parts", str(repo_parts)]) == 0
     assert (tmp_path / "b" / "out" / "armed.fbx").exists()
+
+
+@requires_blender
+def test_build_with_relative_parts_dir(tmp_path, monkeypatch):
+    """Default --parts is the relative path ./parts; it must still work even
+    though Blender subprocesses run with cwd=workdir."""
+    session = tmp_path / "s.json"
+    session.write_text(json.dumps({
+        "nodes": {
+            "hull": {"op": "primitive", "params": {"type": "box", "size": [10, 3, 2]}},
+            "armed": {
+                "op": "attach_part",
+                "inputs": ["hull"],
+                "params": {"part": "pdc_turret", "location": [0, 0, 2]},
+            },
+            "out": {"op": "export_fbx", "inputs": ["armed"],
+                    "params": {"filename": "armed.fbx"}},
+        }
+    }), encoding="utf-8")
+    repo_root = __import__("pathlib").Path(__file__).parent.parent.parent
+    monkeypatch.chdir(repo_root)
+    assert main(["build", "--session", str(session),
+                 "--workdir", str(tmp_path / "b")]) == 0
+    assert (tmp_path / "b" / "out" / "armed.fbx").exists()

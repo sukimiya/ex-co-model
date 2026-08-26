@@ -37,7 +37,8 @@ def main(argv: list[str] | None = None, llm: LLMClient | None = None) -> int:
             client = llm if llm is not None else MoonshotClient()
             parts = None
             if args.parts.exists():
-                parts = PartsIndex.load(args.parts).names()
+                index = PartsIndex.load(args.parts)
+                parts = [index.describe(n) for n in index.names()]
             result = session.apply(client, args.instruction, available_parts=parts)
             print(f"applied in rounds={result.rounds}, nodes={len(result.tree.nodes)}")
         elif args.cmd == "build":
