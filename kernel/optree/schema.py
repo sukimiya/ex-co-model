@@ -52,6 +52,15 @@ class ExportFbxParams(BaseModel):
         return v
 
 
+class AttachPartParams(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    part: str
+    location: tuple[FiniteFloat, FiniteFloat, FiniteFloat] = (0.0, 0.0, 0.0)
+    rotation_deg: tuple[FiniteFloat, FiniteFloat, FiniteFloat] = (0.0, 0.0, 0.0)
+    scale: FiniteFloat = Field(default=1.0, gt=0)
+    part_hash: str | None = None  # injected by the engine, not by users
+
+
 class PrimitiveNode(NodeBase):
     op: Literal["primitive"]
     params: PrimitiveParams
@@ -75,6 +84,12 @@ class ScaleToNode(NodeBase):
     params: ScaleToParams
 
 
+class AttachPartNode(NodeBase):
+    op: Literal["attach_part"]
+    inputs: list[str] = Field(min_length=1, max_length=1)  # the parent
+    params: AttachPartParams
+
+
 class ExportFbxNode(NodeBase):
     op: Literal["export_fbx"]
     inputs: list[str] = Field(min_length=1, max_length=1)
@@ -82,7 +97,7 @@ class ExportFbxNode(NodeBase):
 
 
 Node = Annotated[
-    Union[PrimitiveNode, BevelNode, BooleanSubtractNode, ScaleToNode, ExportFbxNode],
+    Union[PrimitiveNode, BevelNode, BooleanSubtractNode, ScaleToNode, AttachPartNode, ExportFbxNode],
     Field(discriminator="op"),
 ]
 

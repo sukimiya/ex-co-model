@@ -96,3 +96,45 @@ def test_primitive_size_rejects_infinite():
 def test_scale_to_rejects_nan_length():
     with pytest.raises(ValidationError):
         ScaleToParams(length_m=float("nan"))
+
+
+def test_attach_part_node_parses():
+    tree = OpTree.model_validate({
+        "nodes": {
+            "hull": {"op": "primitive", "params": {"type": "box"}},
+            "armed": {
+                "op": "attach_part",
+                "inputs": ["hull"],
+                "params": {"part": "pdc_turret", "location": [0, 0, 2]},
+            },
+        }
+    })
+    node = tree.nodes["armed"]
+    assert node.params.part == "pdc_turret"
+    assert node.params.scale == 1.0
+    assert node.params.part_hash is None
+
+
+def test_attach_part_requires_exactly_one_input():
+    import pytest
+    with pytest.raises(ValidationError):
+        OpTree.model_validate({
+            "nodes": {
+                "bad": {"op": "attach_part", "inputs": [], "params": {"part": "x"}},
+            }
+        })
+
+
+def test_attach_part_rejects_zero_scale():
+    import pytest
+    with pytest.raises(ValidationError):
+        OpTree.model_validate({
+            "nodes": {
+                "hull": {"op": "primitive", "params": {"type": "box"}},
+                "bad": {
+                    "op": "attach_part",
+                    "inputs": ["hull"],
+                    "params": {"part": "x", "scale": 0},
+                },
+            }
+        })
