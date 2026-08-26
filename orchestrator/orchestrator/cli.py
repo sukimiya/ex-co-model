@@ -1,0 +1,57 @@
+import argparse
+import json
+import sys
+from pathlib import Path
+
+from optree.engine import build
+from optree.errors import OpTreeError
+
+from orchestrator.errors import OrchestratorError
+from orchestrator.llm import LLMClient, MoonshotClient
+from orchestrator.session import Session
+
+
+def main(argv: list[str] | None = None, llm: LLMClient | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="orchestrator")
+    sub = parser.add_subparsers(dest="cmd", required=True)
+
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("--session", type=Path, default=Path(".exco/session.json"))
+
+    a = sub.add_parser("apply", parents=[common], help="apply a natural-language instruction")
+    a.add_argument("instruction")
+    b = sub.add_parser("build", parents=[common], help="build the current tree to fbx")
+    b.add_argument("--workdir", type=Path, default=Path(".exco/build"))
+    sub.add_parser("show", parents=[common], help="print the current tree")
+
+    args = parser.parse_args(argv)
+    session = Session(args.session)
+
+    try:
+        if args.cmd == "apply":
+            client = llm if llm is not None else MoonshotClient()
+            result = session.apply(client, args.instruction)
+            print(f"applied in rounds={result.rounds}, nodes={len(result.tree.nodes)}")
+        elif args.cmd == "build":
+            if session.tree is None:
+                print(f"error: no session tree at {args.session}", file=sys.stderr)
+                return 1
+            for p in build(session.tree, args.workdir).exports:
+                print(p)
+        elif args.cmd == "show":
+            if session.tree is None:
+                print(f"error: no session tree at {args.session}", file=sys.stderr)
+                return 1
+            print(json.dumps(
+                {"nodes": {k: v.model_dump(exclude_defaults=True)
+                           for k, v in session.tree.nodes.items()}},
+                indent=2,
+            ))
+    except (OrchestratorError, OpTreeError) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
