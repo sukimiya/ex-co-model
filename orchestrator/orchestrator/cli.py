@@ -8,7 +8,7 @@ from optree.errors import OpTreeError
 from optree.parts import PartsIndex
 from pydantic import ValidationError
 
-from orchestrator.check import vision_check
+from orchestrator.check import self_check
 from orchestrator.config import load_env
 from orchestrator.errors import OrchestratorError
 from orchestrator.llm import LLMClient, MoonshotClient
@@ -49,28 +49,10 @@ def main(argv: list[str] | None = None, llm: LLMClient | None = None) -> int:
             result = session.apply(client, args.instruction, available_parts=parts)
             print(f"applied in rounds={result.rounds}, nodes={len(result.tree.nodes)}")
             if args.check:
-                instruction = args.instruction
-                for _attempt in (1, 2):
-                    png = build_and_render(
-                        session, args.workdir,
-                        args.parts if args.parts.exists() else None)
-                    try:
-                        verdict = vision_check(client, png, instruction)
-                    except OrchestratorError as e:
-                        print(f"warning: vision check unavailable: {e}",
-                              file=sys.stderr)
-                        break
-                    if verdict.ok:
-                        print("self-check passed")
-                        break
-                    print(f"self-check failed: {verdict.reason}; retrying")
-                    instruction = (f"The rendered result is wrong: "
-                                   f"{verdict.reason}. Original request: "
-                                   f"{args.instruction}")
-                    result = session.apply(client, instruction,
-                                           available_parts=parts)
-                    print(f"re-applied in rounds={result.rounds}, "
-                          f"nodes={len(result.tree.nodes)}")
+                print(self_check(
+                    session, client, args.instruction, args.workdir,
+                    args.parts if args.parts.exists() else None,
+                    available_parts=parts))
         elif args.cmd == "build":
             if session.tree is None:
                 print(f"error: no session tree at {args.session}", file=sys.stderr)

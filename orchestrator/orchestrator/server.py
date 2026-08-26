@@ -4,10 +4,13 @@ import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from optree.engine import build
 from optree.errors import OpTreeError
+from optree.render import render_glb
+from pydantic import ValidationError
 
 from orchestrator.errors import OrchestratorError
-from orchestrator.pipeline import build_and_render, final_glb
+from orchestrator.pipeline import final_glb
 from orchestrator.session import Session
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -53,7 +56,13 @@ def make_server(session_path, workdir, parts_dir, llm_factory,
                 self._send(200, (STATIC_DIR / "index.html").read_bytes(),
                            "text/html; charset=utf-8")
             elif self.path == "/api/state":
-                session = Session(state.session_path)
+                try:
+                    session = Session(state.session_path)
+                except (json.JSONDecodeError, ValidationError,
+                        OrchestratorError) as e:
+                    self._send_json(200, {"tree": None, "nodes": 0,
+                                          "error": str(e)})
+                    return
                 tree = None
                 if session.tree is not None:
                     tree = {"nodes": {
@@ -65,13 +74,17 @@ def make_server(session_path, workdir, parts_dir, llm_factory,
                     "parts": state.part_names() or [],
                 })
             elif self.path.startswith("/model.glb"):
-                session = Session(state.session_path)
+                try:
+                    session = Session(state.session_path)
+                except (json.JSONDecodeError, ValidationError,
+                        OrchestratorError) as e:
+                    self._send(500, f"error: {e}".encode(), "text/plain")
+                    return
                 if session.tree is None:
                     self._send(404, b"no model", "text/plain")
                     return
                 try:
                     if not state.built:
-                        from optree.engine import build
                         state.result = build(session.tree, state.workdir,
                                              parts_dir=state.parts_dir)
                         state.built = True
@@ -99,12 +112,17 @@ def make_server(session_path, workdir, parts_dir, llm_factory,
                 session = Session(state.session_path)
                 result = session.apply(state.llm_factory(), instruction,
                                        available_parts=state.part_names())
-                build_and_render(session, state.workdir, state.parts_dir)
-                state.built = False
+                # Build once and keep the result cached for /model.glb.
+                state.result = build(session.tree, state.workdir,
+                                     parts_dir=state.parts_dir)
+                state.built = True
+                render_glb(final_glb(session.tree, state.result),
+                           state.workdir / "out" / "preview.png",
+                           state.workdir)
                 self._send_json(200, {"ok": True, "rounds": result.rounds,
                                       "nodes": len(result.tree.nodes)})
             except (OrchestratorError, OpTreeError, json.JSONDecodeError,
-                    KeyError) as e:
+                    ValidationError, ValueError, TypeError, KeyError) as e:
                 self._send_json(200, {"ok": False, "error": str(e)})
 
     return ThreadingHTTPServer((host, port), Handler)

@@ -1,4 +1,5 @@
 import json
+import socket
 import threading
 from http.client import HTTPConnection
 
@@ -81,3 +82,66 @@ def test_apply_error_is_structured(server):
 def test_404_for_unknown_path(server):
     status, _ = _get(server[0], "/nope")
     assert status == 404
+
+
+@requires_blender
+def test_apply_then_model_glb_and_preview_build_once(server):
+    srv, fake = server
+    status, data = _post(srv, "/api/apply", {"instruction": "一艘护卫舰"})
+    assert status == 200 and data["ok"]
+
+    status, body = _get(srv, "/model.glb")
+    assert status == 200
+    assert body[:4] == b"glTF"
+
+    status, body = _get(srv, "/preview.png")
+    assert status == 200
+    assert body[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+@pytest.fixture
+def corrupt_server(tmp_path):
+    session_path = tmp_path / "s.json"
+    session_path.write_text("not json at all", encoding="utf-8")
+    srv = make_server(session_path, tmp_path / "w", None,
+                      llm_factory=lambda: FakeLLMClient([]), port=0)
+    thread = threading.Thread(target=srv.serve_forever, daemon=True)
+    thread.start()
+    yield srv
+    srv.shutdown()
+    thread.join()
+
+
+def test_state_corrupt_session_returns_structured_error(corrupt_server):
+    status, body = _get(corrupt_server, "/api/state")
+    state = json.loads(body)
+    assert status == 200
+    assert state["tree"] is None and state["nodes"] == 0
+    assert "error" in state
+
+
+def test_model_glb_corrupt_session_returns_500(corrupt_server):
+    status, body = _get(corrupt_server, "/model.glb")
+    assert status == 500
+    assert body.startswith(b"error:")
+
+
+def test_post_bad_content_length_is_structured(server):
+    srv, _ = server
+    sock = socket.create_connection(("127.0.0.1", srv.server_address[1]),
+                                    timeout=10)
+    try:
+        sock.sendall(b"POST /api/apply HTTP/1.1\r\nHost: x\r\n"
+                     b"Content-Type: application/json\r\n"
+                     b"Content-Length: abc\r\n\r\n")
+        raw = b""
+        while True:
+            chunk = sock.recv(4096)
+            if not chunk:
+                break
+            raw += chunk
+    finally:
+        sock.close()
+    head, _, body = raw.partition(b"\r\n\r\n")
+    assert b"200" in head.split(b"\r\n", 1)[0]
+    assert json.loads(body)["ok"] is False

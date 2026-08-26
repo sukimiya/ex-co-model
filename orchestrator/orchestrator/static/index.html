@@ -38,6 +38,7 @@ const el = document.getElementById("viewport");
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x2a2e35);
 const camera = new THREE.PerspectiveCamera(50, el.clientWidth / el.clientHeight, 0.1, 5000);
+camera.position.set(30, -30, 20);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(el.clientWidth, el.clientHeight);
 el.appendChild(renderer.domElement);
@@ -63,8 +64,15 @@ function loadModel() {
     current = g.scene;
     scene.add(current);
     frame(current);
-  }, undefined, () => {});
+  }, undefined, () => {
+    document.getElementById("status").textContent = "模型加载失败（可能还没有模型）";
+  });
 }
+window.onresize = () => {
+  camera.aspect = el.clientWidth / el.clientHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(el.clientWidth, el.clientHeight);
+};
 async function refreshState() {
   const s = await (await fetch("/api/state")).json();
   document.getElementById("tree").textContent =
