@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from typing import Protocol
 
+import openai
 from openai import OpenAI
 
 from orchestrator.errors import OrchestratorError
@@ -34,12 +35,17 @@ class MoonshotClient:
         )
 
     def complete(self, messages: list[dict]) -> str:
-        resp = self._client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            temperature=0.2,
-            response_format={"type": "json_object"},
-        )
+        try:
+            resp = self._client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                temperature=0.2,
+                response_format={"type": "json_object"},
+            )
+        except openai.OpenAIError as e:
+            raise OrchestratorError(f"llm request failed: {e}") from e
+        if not resp.choices or resp.choices[0].message.content is None:
+            raise OrchestratorError("llm returned an empty response")
         return resp.choices[0].message.content
 
 
@@ -51,7 +57,7 @@ class FakeLLMClient:
         self.calls: list[list[dict]] = []
 
     def complete(self, messages: list[dict]) -> str:
-        self.calls.append(messages)
+        self.calls.append(list(messages))
         if not self.responses:
             raise AssertionError("FakeLLMClient ran out of queued responses")
         return self.responses.pop(0)

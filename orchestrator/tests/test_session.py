@@ -1,4 +1,7 @@
 import json
+import os
+
+import pytest
 
 from orchestrator.llm import FakeLLMClient
 from orchestrator.session import Session
@@ -39,3 +42,26 @@ def test_second_apply_sees_existing_tree(tmp_path):
     llm = FakeLLMClient([json.dumps(VALID_TREE)])
     session.apply(llm, "加长到40米")
     assert '"hull"' in llm.calls[0][1]["content"]  # current tree embedded
+
+
+def test_apply_atomic_write_failure_keeps_state(tmp_path, monkeypatch):
+    path = tmp_path / "s.json"
+    session = Session(path)
+    llm = FakeLLMClient([json.dumps(VALID_TREE)])
+
+    def failing_replace(src, dst):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(os, "replace", failing_replace)
+    with pytest.raises(OSError, match="disk full"):
+        session.apply(llm, "一艘护卫舰")
+    assert session.tree is None
+    assert not path.exists()
+
+
+def test_apply_leaves_no_tmp_file(tmp_path):
+    path = tmp_path / "s.json"
+    session = Session(path)
+    session.apply(FakeLLMClient([json.dumps(VALID_TREE)]), "一艘护卫舰")
+    assert path.exists()
+    assert not path.with_suffix(".tmp").exists()

@@ -49,6 +49,35 @@ def test_moonshot_client_reads_env(monkeypatch):
     assert client.model == "kimi-k2-0711-preview"
 
 
+def test_moonshot_client_none_content_raises_empty_response(monkeypatch):
+    class FakeCompletions:
+        def create(self, **kwargs):
+            class Msg:
+                content = None
+            class Choice:
+                message = Msg()
+            class Resp:
+                choices = [Choice()]
+            return Resp()
+
+    class FakeOpenAI:
+        def __init__(self, api_key, base_url):
+            self.chat = type("Chat", (), {"completions": FakeCompletions()})()
+
+    monkeypatch.setattr("orchestrator.llm.OpenAI", FakeOpenAI)
+    client = MoonshotClient(api_key="sk-test")
+    with pytest.raises(OrchestratorError, match="empty response"):
+        client.complete([{"role": "user", "content": "hi"}])
+
+
+def test_fake_llm_client_records_snapshot():
+    fake = FakeLLMClient(["resp"])
+    messages = [{"role": "user", "content": "a"}]
+    fake.complete(messages)
+    messages.append({"role": "assistant", "content": "resp"})
+    assert len(fake.calls[0]) == 1
+
+
 def test_fake_llm_client_queues_and_records():
     fake = FakeLLMClient(["resp1", "resp2"])
     assert fake.complete([{"role": "user", "content": "a"}]) == "resp1"

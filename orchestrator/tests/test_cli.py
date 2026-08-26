@@ -1,9 +1,5 @@
 import json
 
-import pytest
-
-from optree.schema import OpTree
-
 from orchestrator.cli import main
 from orchestrator.errors import OrchestratorError
 from orchestrator.llm import FakeLLMClient
@@ -22,7 +18,7 @@ def test_apply_creates_session(tmp_path, capsys):
     fake = FakeLLMClient([VALID_TREE])
     assert main(["apply", "一艘护卫舰", "--session", str(session)], llm=fake) == 0
     out = capsys.readouterr().out
-    assert "round 1" in out or "rounds=1" in out
+    assert "rounds=1" in out
     assert session.exists()
 
 
@@ -30,6 +26,25 @@ def test_apply_llm_failure_exit_1(tmp_path, capsys):
     fake = FakeLLMClient(["garbage"] * 3)
     assert main(["apply", "x", "--session", str(tmp_path / "s.json")], llm=fake) == 1
     assert "error" in capsys.readouterr().err
+
+
+def test_apply_sdk_failure_presented_as_error(tmp_path, capsys):
+    class FailingLLM:
+        def complete(self, messages):
+            raise OrchestratorError("llm request failed: boom")
+
+    assert main(["apply", "x", "--session", str(tmp_path / "s.json")],
+                llm=FailingLLM()) == 1
+    err = capsys.readouterr().err
+    assert "error:" in err
+    assert "llm request failed" in err
+
+
+def test_show_corrupt_session_exit_1(tmp_path, capsys):
+    session = tmp_path / "s.json"
+    session.write_text('{"nodes": ', encoding="utf-8")
+    assert main(["show", "--session", str(session)]) == 1
+    assert "error:" in capsys.readouterr().err
 
 
 def test_show_without_session_exit_1(tmp_path, capsys):

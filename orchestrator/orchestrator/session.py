@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 
 from optree.schema import OpTree
@@ -20,14 +21,16 @@ class Session:
 
     def apply(self, llm: LLMClient, instruction: str) -> ApplyResult:
         result = run_apply(llm, instruction, self.tree)
-        self.tree = result.tree
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(
+        tmp = self.path.with_suffix(".tmp")
+        tmp.write_text(
             json.dumps(
                 {"nodes": {k: v.model_dump(exclude_defaults=True)
-                           for k, v in self.tree.nodes.items()}},
+                           for k, v in result.tree.nodes.items()}},
                 indent=2,
             ),
             encoding="utf-8",
         )
+        os.replace(tmp, self.path)
+        self.tree = result.tree
         return result
