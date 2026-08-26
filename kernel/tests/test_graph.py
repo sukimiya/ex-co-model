@@ -36,7 +36,7 @@ def test_topo_order_diamond():
 
 
 def test_cycle_raises():
-    # schema 允许自引用环存在（引用检查只看存在性），graph 负责抓环
+    # schema only checks that referenced nodes exist; graph is responsible for catching cycles
     tree = OpTree.model_validate({
         "nodes": {
             "a": {"op": "bevel", "inputs": ["b"]},
