@@ -13,6 +13,8 @@ from mathutils import Vector
 bpy.ops.wm.read_factory_settings(use_empty=True)
 bpy.ops.import_scene.gltf(filepath={glb!r})
 
+bpy.context.view_layer.update()  # flush parent/rig transforms into matrix_world
+
 meshes = [o for o in bpy.context.scene.objects if o.type == "MESH"]
 mins = Vector((1e18, 1e18, 1e18))
 maxs = Vector((-1e18, -1e18, -1e18))
@@ -36,25 +38,32 @@ for o in meshes:
 
 dist = radius * 4.0
 
-def area_light(offset, energy):
+def area_light(offset, energy, size):
     bpy.ops.object.light_add(type="AREA", location=center + offset)
     lamp = bpy.context.active_object
     lamp.data.energy = energy
-    lamp.data.size = radius * 2
+    lamp.data.size = size
     lamp.rotation_euler = (center - lamp.location).to_track_quat("-Z", "Y").to_euler()
 
-area_light(Vector((dist * 0.7, -dist * 0.7, dist * 0.7)), radius * radius * 60)
-area_light(Vector((-dist * 0.7, dist * 0.7, -dist * 0.2)), radius * radius * 25)
+area_light(Vector((dist * 0.2, -dist * 0.3, dist * 0.3)), radius * radius * 50, radius)
+area_light(Vector((-dist * 0.25, dist * 0.25, -dist * 0.12)), radius * radius * 25, radius * 0.75)
 
 bpy.ops.object.camera_add(location=center + Vector((dist * 0.75, -dist * 0.75, dist * 0.5)))
 cam = bpy.context.active_object
+cam.data.lens = 32
 cam.rotation_euler = (center - cam.location).to_track_quat("-Z", "Y").to_euler()
+# tall objects (long axis = Z) frame better with the camera rolled 90 degrees
+if dims.z > max(dims.x, dims.y):
+    from mathutils import Quaternion
+    import math
+    q = cam.rotation_euler.to_quaternion()
+    cam.rotation_euler = (q @ Quaternion((0, 0, 1), math.radians(90))).to_euler()
 bpy.context.scene.camera = cam
 
 world = bpy.data.worlds.new("w")
 world.use_nodes = True
-world.node_tree.nodes["Background"].inputs[0].default_value = (0.32, 0.35, 0.4, 1)
-world.node_tree.nodes["Background"].inputs[1].default_value = 0.5
+world.node_tree.nodes["Background"].inputs[0].default_value = (0.35, 0.38, 0.42, 1)
+world.node_tree.nodes["Background"].inputs[1].default_value = 0.6
 bpy.context.scene.world = world
 
 scene = bpy.context.scene
