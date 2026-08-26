@@ -1,0 +1,8 @@
+.env
+.env.local
+.exco/
+.superpowers/
+__pycache__/
+*.egg-info/
+.venv/
+uv.lock

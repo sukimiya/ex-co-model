@@ -7,12 +7,14 @@ from optree.engine import build
 from optree.errors import OpTreeError
 from pydantic import ValidationError
 
+from orchestrator.config import load_env
 from orchestrator.errors import OrchestratorError
 from orchestrator.llm import LLMClient, MoonshotClient
 from orchestrator.session import Session
 
 
 def main(argv: list[str] | None = None, llm: LLMClient | None = None) -> int:
+    load_env()  # picks up MOONSHOT_* from ./.env if present
     parser = argparse.ArgumentParser(prog="orchestrator")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
