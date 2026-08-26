@@ -29,19 +29,25 @@ class MoonshotClient:
                 "MOONSHOT_API_KEY not set; export it before using the orchestrator"
             )
         self.model = model or os.environ.get("MOONSHOT_MODEL", DEFAULT_MODEL)
+        # Some providers (e.g. api.kimi.com/coding) reject any explicit
+        # temperature; only send it when the user opts in via env var.
+        raw_temp = os.environ.get("MOONSHOT_TEMPERATURE")
+        self.temperature = float(raw_temp) if raw_temp is not None else None
         self._client = OpenAI(
             api_key=self.api_key,
             base_url=base_url or os.environ.get("MOONSHOT_BASE_URL", DEFAULT_BASE_URL),
         )
 
     def complete(self, messages: list[dict]) -> str:
+        kwargs: dict = {
+            "model": self.model,
+            "messages": messages,
+            "response_format": {"type": "json_object"},
+        }
+        if self.temperature is not None:
+            kwargs["temperature"] = self.temperature
         try:
-            resp = self._client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                temperature=0.2,
-                response_format={"type": "json_object"},
-            )
+            resp = self._client.chat.completions.create(**kwargs)
         except openai.OpenAIError as e:
             raise OrchestratorError(f"llm request failed: {e}") from e
         if not resp.choices or resp.choices[0].message.content is None:

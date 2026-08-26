@@ -19,7 +19,7 @@ class BuildResult:
 def build(tree: OpTree, workdir: Path) -> BuildResult:
     """Execute an OpTree. Cached nodes are skipped; dirty nodes run in one
     headless Blender session. Returns paths to cached glbs and exported fbx."""
-    workdir = Path(workdir)
+    workdir = Path(workdir).resolve()
     cache = workdir / "cache"
     outdir = workdir / "out"
     cache.mkdir(parents=True, exist_ok=True)
