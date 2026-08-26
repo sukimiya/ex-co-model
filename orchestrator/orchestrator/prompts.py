@@ -9,7 +9,7 @@ the OpTree: a JSON document describing modeling operations as a DAG.
 
 Output contract:
 - Respond with ONE json object: {"nodes": {<name>: <node>, ...}}. No prose.
-- Every node: {"op": <op>, "inputs": [<node names>], "params": {...}}.
+- Every node: {"op": <op>, "inputs": [<node names>], "params": {...}}; omit "params" entirely for boolean_subtract (it has none).
 - inputs reference other node names; every reference must exist; no cycles.
 - Units are meters. Keep the final export_fbx node pointing at the final geometry.
 
