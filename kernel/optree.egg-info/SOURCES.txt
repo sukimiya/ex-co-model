@@ -1,0 +1,9 @@
+pyproject.toml
+optree/__init__.py
+optree.egg-info/PKG-INFO
+optree.egg-info/SOURCES.txt
+optree.egg-info/dependency_links.txt
+optree.egg-info/entry_points.txt
+optree.egg-info/requires.txt
+optree.egg-info/top_level.txt
+tests/test_schema.py
