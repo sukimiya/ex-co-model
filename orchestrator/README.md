@@ -20,8 +20,10 @@ cd orchestrator
 ```bash
 orchestrator apply "一艘双引擎太空护卫舰，船身侧面开一个机库口"
 orchestrator apply "全长改成40米"           # 修改当前会话的树
+orchestrator apply "在船尾装两个引擎喷口"     # 若 ./parts 存在，部件列表自动注入 prompt
 orchestrator show                          # 查看当前 OpTree
 orchestrator build                         # 构建 FBX（.exco/build/out/）
+orchestrator build --parts ./parts         # attach_part 需要部件库（默认 ./parts）
 ```
 
 会话默认存 `.exco/session.json`（文件本身就是 OpTree JSON）。

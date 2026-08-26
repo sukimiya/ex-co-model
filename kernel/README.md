@@ -31,6 +31,7 @@ optree build examples/razorback_demo.json --workdir .optree
 | `bevel` | [src] | `width`, `segments` | 倒角 |
 | `boolean_subtract` | [target, cutter] | - | 精确布尔减（开槽/挖洞） |
 | `scale_to` | [src] | `length_m` | 等比缩放到指定最长边 |
+| `attach_part` | [parent] | `part`, `location`, `rotation_deg`, `scale` | 装配部件库精模到母体 |
 | `export_fbx` | [src] | `filename` | 导出 FBX |
 
 中间产物缓存于 `<workdir>/cache/<content-hash>.glb`，同参数同输入必命中缓存。

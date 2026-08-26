@@ -20,14 +20,22 @@ extents), radius/depth/vertices (cylinder), location [x,y,z].
 - boolean_subtract: inputs [target, cutter]. Cut a slot/hole out of target.
 - scale_to: inputs [src]. params: length_m (>0). Uniformly scales so the longest \
 axis equals length_m.
+- attach_part: inputs [parent]. params: part (library part name), location [x,y,z], \
+rotation_deg [x,y,z], scale (>0). Attaches a precision library part onto the parent.
 - export_fbx: inputs [src]. params: filename (plain basename ending in .fbx).
+
+Rules:
+- To ADD a component (engine, turret, antenna...), ALWAYS use attach_part with a \
+library part. NEVER use boolean_subtract to add something — it only removes material.
+- boolean_subtract is ONLY for cutting slots/holes out of a target.
 
 When modifying an existing tree, change only what the instruction requires and \
 keep every unrelated node byte-identical (names, params, structure).\
 """
 
 
-def build_messages(instruction: str, current_tree: OpTree | None) -> list[dict]:
+def build_messages(instruction: str, current_tree: OpTree | None,
+                   available_parts: list[str] | None = None) -> list[dict]:
     user = ""
     if current_tree is not None:
         tree_json = json.dumps(
@@ -36,6 +44,8 @@ def build_messages(instruction: str, current_tree: OpTree | None) -> list[dict]:
             indent=2,
         )
         user += f"Current OpTree:\n```json\n{tree_json}\n```\n\n"
+    if available_parts:
+        user += "Available parts: " + ", ".join(available_parts) + "\n\n"
     user += f"Instruction: {instruction}"
     return [
         {"role": "system", "content": SYSTEM_PROMPT},

@@ -70,3 +70,9 @@ def test_current_tree_passed_to_messages():
     llm = FakeLLMClient([VALID_TREE])
     run_apply(llm, "加长到40米", current)
     assert '"hull"' in llm.calls[0][1]["content"]
+
+
+def test_available_parts_reach_prompt():
+    llm = FakeLLMClient([VALID_TREE])
+    run_apply(llm, "加一门炮", None, available_parts=["pdc_turret"])
+    assert "pdc_turret" in llm.calls[0][1]["content"]

@@ -19,8 +19,9 @@ class Session:
                 json.loads(self.path.read_text(encoding="utf-8"))
             )
 
-    def apply(self, llm: LLMClient, instruction: str) -> ApplyResult:
-        result = run_apply(llm, instruction, self.tree)
+    def apply(self, llm: LLMClient, instruction: str,
+              available_parts: list[str] | None = None) -> ApplyResult:
+        result = run_apply(llm, instruction, self.tree, available_parts=available_parts)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.path.with_suffix(".tmp")
         tmp.write_text(

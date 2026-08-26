@@ -26,9 +26,10 @@ def _validate(raw: str) -> OpTree:
 
 
 def run_apply(llm: LLMClient, instruction: str, current_tree: OpTree | None,
-              max_rounds: int = 3) -> ApplyResult:
+              max_rounds: int = 3,
+              available_parts: list[str] | None = None) -> ApplyResult:
     """Ask the LLM for an OpTree; feed validation errors back up to max_rounds."""
-    messages = build_messages(instruction, current_tree)
+    messages = build_messages(instruction, current_tree, available_parts)
     last_error: str | None = None
     for round_no in range(1, max_rounds + 1):
         raw = llm.complete(messages)

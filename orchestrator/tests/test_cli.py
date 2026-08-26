@@ -66,3 +66,25 @@ def test_build_produces_fbx(tmp_path, capsys):
                  "--workdir", str(tmp_path / "build")]) == 0
     assert "ship.fbx" in capsys.readouterr().out
     assert (tmp_path / "build" / "out" / "ship.fbx").exists()
+
+
+@requires_blender
+def test_build_passes_parts_dir(tmp_path):
+    """build with attach_part tree and --parts pointing at the repo library."""
+    session = tmp_path / "s.json"
+    session.write_text(json.dumps({
+        "nodes": {
+            "hull": {"op": "primitive", "params": {"type": "box", "size": [10, 3, 2]}},
+            "armed": {
+                "op": "attach_part",
+                "inputs": ["hull"],
+                "params": {"part": "pdc_turret", "location": [0, 0, 2]},
+            },
+            "out": {"op": "export_fbx", "inputs": ["armed"],
+                    "params": {"filename": "armed.fbx"}},
+        }
+    }), encoding="utf-8")
+    repo_parts = __import__("pathlib").Path(__file__).parent.parent.parent / "parts"
+    assert main(["build", "--session", str(session),
+                 "--workdir", str(tmp_path / "b"), "--parts", str(repo_parts)]) == 0
+    assert (tmp_path / "b" / "out" / "armed.fbx").exists()

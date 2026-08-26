@@ -39,3 +39,20 @@ def test_feedback_message_wraps_error():
     assert msg["role"] == "user"
     assert "references unknown node" in msg["content"]
     assert "corrected" in msg["content"].lower()
+
+
+def test_system_prompt_documents_attach_part_rules():
+    assert "attach_part" in SYSTEM_PROMPT
+    # the anti-misuse rule: boolean_subtract is only for cutting
+    assert "never" in SYSTEM_PROMPT.lower() or "only" in SYSTEM_PROMPT.lower()
+
+
+def test_build_messages_lists_available_parts():
+    msgs = build_messages("加一门炮", None, available_parts=["pdc_turret", "engine_nozzle"])
+    assert "pdc_turret" in msgs[1]["content"]
+    assert "engine_nozzle" in msgs[1]["content"]
+
+
+def test_build_messages_without_parts_omits_section():
+    msgs = build_messages("一艘船", None)
+    assert "Available parts" not in msgs[1]["content"]
