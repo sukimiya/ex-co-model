@@ -3,17 +3,17 @@
     "pdc_turret": {
       "file": "pdc_turret.glb",
       "description": "point defense cannon turret: round base + twin barrels",
-      "snap": {"mount": "flat surface, barrels point +Z", "approx_size_m": [1.2, 1.2, 1.6]}
+      "snap": {"mount": "flat surface; origin at base center, turret axis +Z, barrels point +/-Y", "approx_size_m": [1.2, 1.2, 1.6]}
     },
     "engine_nozzle": {
       "file": "engine_nozzle.glb",
-      "description": "main engine nozzle bell, throat faces -Z",
-      "snap": {"mount": "engine block aft face", "approx_size_m": [2.0, 2.0, 2.5]}
+      "description": "main engine nozzle bell, wide exhaust faces -Z",
+      "snap": {"mount": "engine block aft face; origin at bell center, mount face at z=+1.5", "approx_size_m": [2.0, 2.0, 2.8]}
     },
     "comm_antenna": {
       "file": "comm_antenna.glb",
       "description": "thin comm mast with dish",
-      "snap": {"mount": "hull spine", "approx_size_m": [0.3, 0.3, 3.0]}
+      "snap": {"mount": "hull spine; origin at mast base, points +Z", "approx_size_m": [1.0, 1.0, 3.2]}
     }
   }
 }
