@@ -55,7 +55,7 @@ Create `orchestrator/pyproject.toml`:
 name = "orchestrator"
 version = "0.1.0"
 requires-python = ">=3.11"
-dependencies = ["openai>=1.0", "optree"]
+dependencies = ["openai>=1.0"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
@@ -70,6 +70,8 @@ include = ["orchestrator*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 ```
+
+注意：orchestrator 运行依赖本地 kernel 包，先 `pip install -e ../kernel`（pyproject 里不能写 "optree"——PyPI 上有同名无关包）。
 
 Create `orchestrator/orchestrator/__init__.py`（空文件）和 `orchestrator/tests/__init__.py`（空文件）。
 
