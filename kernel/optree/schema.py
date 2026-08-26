@@ -4,7 +4,10 @@ import json
 from pathlib import Path
 from typing import Annotated, Literal, Union
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+# Finite float: rejects inf/nan. Applied per element inside tuples.
+FiniteFloat = Annotated[float, Field(allow_inf_nan=False)]
 
 
 class NodeBase(BaseModel):
@@ -15,27 +18,38 @@ class NodeBase(BaseModel):
 class PrimitiveParams(BaseModel):
     model_config = ConfigDict(extra="forbid")
     type: Literal["box", "cylinder"]
-    size: tuple[float, float, float] = (2.0, 2.0, 2.0)  # box full extents, meters
-    radius: float = 1.0          # cylinder only
-    depth: float = 2.0           # cylinder only
+    size: tuple[FiniteFloat, FiniteFloat, FiniteFloat] = (2.0, 2.0, 2.0)  # box full extents, meters
+    radius: FiniteFloat = 1.0    # cylinder only
+    depth: FiniteFloat = 2.0     # cylinder only
     vertices: int = 32           # cylinder only
-    location: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    location: tuple[FiniteFloat, FiniteFloat, FiniteFloat] = (0.0, 0.0, 0.0)
 
 
 class BevelParams(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    width: float = 0.1
+    width: FiniteFloat = 0.1
     segments: int = 3
 
 
 class ScaleToParams(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    length_m: float = Field(gt=0)
+    length_m: float = Field(gt=0, allow_inf_nan=False)
 
 
 class ExportFbxParams(BaseModel):
     model_config = ConfigDict(extra="forbid")
     filename: str = "model.fbx"
+
+    @field_validator("filename")
+    @classmethod
+    def _filename_is_plain_fbx_basename(cls, v: str) -> str:
+        if Path(v).is_absolute():
+            raise ValueError("filename must be a plain basename, not an absolute path")
+        if ".." in v or "/" in v or "\\" in v:
+            raise ValueError("filename must not contain '..' or path separators")
+        if not v.lower().endswith(".fbx"):
+            raise ValueError("filename must end with .fbx")
+        return v
 
 
 class PrimitiveNode(NodeBase):

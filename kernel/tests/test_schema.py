@@ -3,7 +3,13 @@ import json
 import pytest
 from pydantic import ValidationError
 
-from optree.schema import OpTree, load_optree
+from optree.schema import (
+    ExportFbxParams,
+    OpTree,
+    PrimitiveParams,
+    ScaleToParams,
+    load_optree,
+)
 
 
 def valid_tree_dict() -> dict:
@@ -65,3 +71,28 @@ def test_load_optree_roundtrip(tmp_path):
     p.write_text(json.dumps(valid_tree_dict()), encoding="utf-8")
     tree = load_optree(p)
     assert tree.nodes["out"].params.filename == "ship.fbx"
+
+
+def test_export_filename_rejects_parent_escape():
+    with pytest.raises(ValidationError):
+        ExportFbxParams(filename="../evil.fbx")
+
+
+def test_export_filename_rejects_subdirectory():
+    with pytest.raises(ValidationError):
+        ExportFbxParams(filename="sub/dir.fbx")
+
+
+def test_export_filename_requires_fbx_extension():
+    with pytest.raises(ValidationError):
+        ExportFbxParams(filename="model.glb")
+
+
+def test_primitive_size_rejects_infinite():
+    with pytest.raises(ValidationError):
+        PrimitiveParams(type="box", size=[float("inf"), 1, 1])
+
+
+def test_scale_to_rejects_nan_length():
+    with pytest.raises(ValidationError):
+        ScaleToParams(length_m=float("nan"))
