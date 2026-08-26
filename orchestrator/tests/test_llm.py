@@ -85,3 +85,42 @@ def test_fake_llm_client_queues_and_records():
     assert len(fake.calls) == 2
     with pytest.raises(AssertionError, match="ran out"):
         fake.complete([])
+
+
+def test_moonshot_complete_with_image_builds_data_url(tmp_path, monkeypatch):
+    import base64
+    captured = {}
+
+    class FakeCompletions:
+        def create(self, **kwargs):
+            captured.update(kwargs)
+            class Msg:
+                content = '{"ok": true}'
+            class Choice:
+                message = Msg()
+            class Resp:
+                choices = [Choice()]
+            return Resp()
+
+    class FakeOpenAI:
+        def __init__(self, api_key, base_url):
+            self.chat = type("Chat", (), {"completions": FakeCompletions()})()
+
+    monkeypatch.setattr("orchestrator.llm.OpenAI", FakeOpenAI)
+    png = tmp_path / "p.png"
+    png.write_bytes(b"fake-png")
+    client = MoonshotClient(api_key="sk-test")
+    out = client.complete_with_image("describe", png)
+    assert out == '{"ok": true}'
+    content = captured["messages"][0]["content"]
+    assert content[0] == {"type": "text", "text": "describe"}
+    assert content[1]["type"] == "image_url"
+    assert content[1]["image_url"]["url"] == "data:image/png;base64," + base64.b64encode(b"fake-png").decode()
+    assert captured["response_format"] == {"type": "json_object"}
+
+
+def test_fake_llm_client_image_calls(tmp_path):
+    fake = FakeLLMClient(["img-resp"])
+    out = fake.complete_with_image("look", tmp_path / "p.png")
+    assert out == "img-resp"
+    assert fake.image_calls == [("look", tmp_path / "p.png")]

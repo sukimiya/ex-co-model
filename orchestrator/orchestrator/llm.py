@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Protocol
 
 import openai
@@ -16,6 +17,8 @@ class LLMClient(Protocol):
     """Anything that can complete a chat message list and return raw text."""
 
     def complete(self, messages: list[dict]) -> str: ...
+
+    def complete_with_image(self, text: str, image_path: Path) -> str: ...
 
 
 class MoonshotClient:
@@ -54,6 +57,31 @@ class MoonshotClient:
             raise OrchestratorError("llm returned an empty response")
         return resp.choices[0].message.content
 
+    def complete_with_image(self, text: str, image_path: Path) -> str:
+        import base64
+        b64 = base64.b64encode(Path(image_path).read_bytes()).decode()
+        kwargs: dict = {
+            "model": self.model,
+            "messages": [{
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": text},
+                    {"type": "image_url",
+                     "image_url": {"url": f"data:image/png;base64,{b64}"}},
+                ],
+            }],
+            "response_format": {"type": "json_object"},
+        }
+        if self.temperature is not None:
+            kwargs["temperature"] = self.temperature
+        try:
+            resp = self._client.chat.completions.create(**kwargs)
+        except openai.OpenAIError as e:
+            raise OrchestratorError(f"llm request failed: {e}") from e
+        if not resp.choices or resp.choices[0].message.content is None:
+            raise OrchestratorError("llm returned an empty response")
+        return resp.choices[0].message.content
+
 
 class FakeLLMClient:
     """Test double: returns queued responses in order and records calls."""
@@ -61,9 +89,16 @@ class FakeLLMClient:
     def __init__(self, responses: list[str]):
         self.responses = list(responses)
         self.calls: list[list[dict]] = []
+        self.image_calls: list[tuple[str, Path]] = []
 
     def complete(self, messages: list[dict]) -> str:
         self.calls.append(list(messages))
+        if not self.responses:
+            raise AssertionError("FakeLLMClient ran out of queued responses")
+        return self.responses.pop(0)
+
+    def complete_with_image(self, text: str, image_path) -> str:
+        self.image_calls.append((text, image_path))
         if not self.responses:
             raise AssertionError("FakeLLMClient ran out of queued responses")
         return self.responses.pop(0)

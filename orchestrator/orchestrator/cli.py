@@ -8,6 +8,7 @@ from optree.errors import OpTreeError
 from optree.parts import PartsIndex
 from pydantic import ValidationError
 
+from orchestrator.check import vision_check
 from orchestrator.config import load_env
 from orchestrator.errors import OrchestratorError
 from orchestrator.llm import LLMClient, MoonshotClient
@@ -27,6 +28,7 @@ def main(argv: list[str] | None = None, llm: LLMClient | None = None) -> int:
 
     a = sub.add_parser("apply", parents=[common], help="apply a natural-language instruction")
     a.add_argument("instruction")
+    a.add_argument("--check", action="store_true", help="vision self-check after apply")
     sub.add_parser("build", parents=[common], help="build the current tree to fbx")
     sub.add_parser("show", parents=[common], help="print the current tree")
     sub.add_parser("preview", parents=[common], help="build and render a preview png")
@@ -43,6 +45,29 @@ def main(argv: list[str] | None = None, llm: LLMClient | None = None) -> int:
                 parts = [index.describe(n) for n in index.names()]
             result = session.apply(client, args.instruction, available_parts=parts)
             print(f"applied in rounds={result.rounds}, nodes={len(result.tree.nodes)}")
+            if args.check:
+                instruction = args.instruction
+                for _attempt in (1, 2):
+                    png = build_and_render(
+                        session, args.workdir,
+                        args.parts if args.parts.exists() else None)
+                    try:
+                        verdict = vision_check(client, png, instruction)
+                    except OrchestratorError as e:
+                        print(f"warning: vision check unavailable: {e}",
+                              file=sys.stderr)
+                        break
+                    if verdict.ok:
+                        print("self-check passed")
+                        break
+                    print(f"self-check failed: {verdict.reason}; retrying")
+                    instruction = (f"The rendered result is wrong: "
+                                   f"{verdict.reason}. Original request: "
+                                   f"{args.instruction}")
+                    result = session.apply(client, instruction,
+                                           available_parts=parts)
+                    print(f"re-applied in rounds={result.rounds}, "
+                          f"nodes={len(result.tree.nodes)}")
         elif args.cmd == "build":
             if session.tree is None:
                 print(f"error: no session tree at {args.session}", file=sys.stderr)
