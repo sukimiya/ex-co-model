@@ -1,11 +1,18 @@
 from optree.emit import (
+    emit_attach_part,
     emit_bevel,
     emit_boolean_subtract,
     emit_export_fbx,
     emit_primitive,
     emit_scale_to,
 )
-from optree.schema import BevelParams, ExportFbxParams, PrimitiveParams, ScaleToParams
+from optree.schema import (
+    AttachPartParams,
+    BevelParams,
+    ExportFbxParams,
+    PrimitiveParams,
+    ScaleToParams,
+)
 
 
 def test_emit_box_primitive():
@@ -51,3 +58,18 @@ def test_emit_export_fbx():
     code = emit_export_fbx("/tmp/out/ship.fbx", "/tmp/s.glb", ExportFbxParams(filename="ship.fbx"))
     assert "export_scene.fbx" in code
     assert "/tmp/out/ship.fbx" in code
+
+
+def test_emit_attach_part_imports_both_and_transforms():
+    code = emit_attach_part(
+        "/tmp/out.glb", "/tmp/parent.glb", "/lib/turret.glb",
+        AttachPartParams(part="pdc_turret", location=(0, 0, 2),
+                         rotation_deg=(0, 90, 0), scale=1.5),
+    )
+    assert code.index("/tmp/parent.glb") < code.index("/lib/turret.glb")
+    assert "import_scene.gltf" in code
+    assert "math.radians" in code
+    assert "(0, 0, 2)" in code
+    assert "(0, 90, 0)" in code
+    assert "1.5" in code
+    assert "export_scene.gltf" in code

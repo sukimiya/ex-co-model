@@ -3,8 +3,10 @@ from pathlib import Path
 
 from optree import emit
 from optree.blender_session import run_blender_script
+from optree.errors import OpTreeError
 from optree.graph import topo_order
 from optree.keys import node_key
+from optree.parts import PartsIndex
 from optree.schema import OpTree
 
 _SCENE_RESET = "bpy.ops.object.select_all(action='SELECT')\nbpy.ops.object.delete()\n"
@@ -16,10 +18,15 @@ class BuildResult:
     exports: list[Path] = field(default_factory=list)
 
 
-def build(tree: OpTree, workdir: Path) -> BuildResult:
+def build(tree: OpTree, workdir: Path, parts_dir: Path | None = None) -> BuildResult:
     """Execute an OpTree. Cached nodes are skipped; dirty nodes run in one
     headless Blender session. Returns paths to cached glbs and exported fbx."""
     workdir = Path(workdir).resolve()
+    index = None
+    if any(n.op == "attach_part" for n in tree.nodes.values()):
+        if parts_dir is None:
+            raise OpTreeError("tree uses attach_part; pass parts_dir")
+        index = PartsIndex.load(parts_dir)
     cache = workdir / "cache"
     outdir = workdir / "out"
     cache.mkdir(parents=True, exist_ok=True)
@@ -33,6 +40,8 @@ def build(tree: OpTree, workdir: Path) -> BuildResult:
 
     for name in order:
         node = tree.nodes[name]
+        if node.op == "attach_part":
+            node.params.part_hash = index.content_hash(node.params.part)
         key = node_key(node, [keys[i] for i in node.inputs])
         keys[name] = key
         if node.op == "export_fbx":
@@ -57,6 +66,11 @@ def build(tree: OpTree, workdir: Path) -> BuildResult:
                 )
             elif node.op == "scale_to":
                 script += emit.emit_scale_to(str(glbs[name]), str(glbs[node.inputs[0]]), node.params)
+            elif node.op == "attach_part":
+                script += emit.emit_attach_part(
+                    str(glbs[name]), str(glbs[node.inputs[0]]),
+                    str(index.resolve(node.params.part)), node.params,
+                )
             elif node.op == "export_fbx":
                 script += emit.emit_export_fbx(str(exports[name]), str(glbs[node.inputs[0]]), node.params)
             script += _SCENE_RESET

@@ -4,7 +4,13 @@ Each emitted segment assumes the scene starts empty and ends containing only
 the node's result object(s), written to `out` as GLB (or FBX for export).
 """
 
-from optree.schema import BevelParams, ExportFbxParams, PrimitiveParams, ScaleToParams
+from optree.schema import (
+    AttachPartParams,
+    BevelParams,
+    ExportFbxParams,
+    PrimitiveParams,
+    ScaleToParams,
+)
 
 
 def _fmt_num(x: float) -> str:
@@ -101,4 +107,27 @@ def emit_export_fbx(out: str, src: str, p: ExportFbxParams) -> str:
     return (
         _import_glb(src)
         + f"bpy.ops.export_scene.fbx(filepath={out!r})\n"
+    )
+
+
+def emit_attach_part(out: str, parent: str, part_path: str, p: AttachPartParams) -> str:
+    """Import parent + library part, place the part, export combined scene.
+
+    `p.location` is in meters and `p.rotation_deg` is in degrees, both applied
+    in the parent (world) frame: the part's transform is translated/rotated
+    relative to the parent scene origin, not the part's local origin.
+    """
+    return (
+        _import_glb(parent)
+        + "bpy.ops.object.select_all(action='DESELECT')\n"
+        + _import_glb(part_path)
+        + "import math\n"
+        + f"loc = {_fmt_vec3(p.location)}\n"
+        + f"rot = tuple(math.radians(a) for a in {_fmt_vec3(p.rotation_deg)})\n"
+        + f"s = {_fmt_num(p.scale)}\n"
+        + "for o in imported:\n"
+        + "    o.location = tuple(a + b for a, b in zip(o.location, loc))\n"
+        + "    o.rotation_euler = tuple(a + b for a, b in zip(o.rotation_euler, rot))\n"
+        + "    o.scale = tuple(a * s for a in o.scale)\n"
+        + _export_glb(out)
     )
