@@ -1,0 +1,31 @@
+{
+  "nodes": {
+    "hull": {
+      "op": "primitive",
+      "params": {"type": "box", "size": [10, 3, 2]}
+    },
+    "slot_cutter": {
+      "op": "primitive",
+      "params": {"type": "box", "size": [2, 1, 0.8], "location": [0, 0, 1]}
+    },
+    "slotted": {
+      "op": "boolean_subtract",
+      "inputs": ["hull", "slot_cutter"]
+    },
+    "shaped": {
+      "op": "bevel",
+      "inputs": ["slotted"],
+      "params": {"width": 0.15, "segments": 3}
+    },
+    "scaled": {
+      "op": "scale_to",
+      "inputs": ["shaped"],
+      "params": {"length_m": 28}
+    },
+    "out": {
+      "op": "export_fbx",
+      "inputs": ["scaled"],
+      "params": {"filename": "razorback.fbx"}
+    }
+  }
+}
