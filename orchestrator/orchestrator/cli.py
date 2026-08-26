@@ -13,6 +13,7 @@ from orchestrator.config import load_env
 from orchestrator.errors import OrchestratorError
 from orchestrator.llm import LLMClient, MoonshotClient
 from orchestrator.pipeline import build_and_render
+from orchestrator.server import serve as serve_ui
 from orchestrator.session import Session
 
 
@@ -32,6 +33,8 @@ def main(argv: list[str] | None = None, llm: LLMClient | None = None) -> int:
     sub.add_parser("build", parents=[common], help="build the current tree to fbx")
     sub.add_parser("show", parents=[common], help="print the current tree")
     sub.add_parser("preview", parents=[common], help="build and render a preview png")
+    s = sub.add_parser("serve", parents=[common], help="start the local web ui")
+    s.add_argument("--port", type=int, default=8787)
 
     args = parser.parse_args(argv)
 
@@ -89,6 +92,10 @@ def main(argv: list[str] | None = None, llm: LLMClient | None = None) -> int:
                 session, args.workdir,
                 args.parts if args.parts.exists() else None)
             print(png)
+        elif args.cmd == "serve":
+            serve_ui(args.session, args.workdir,
+                     args.parts if args.parts.exists() else None,
+                     llm_factory=MoonshotClient, port=args.port)
     except (OrchestratorError, OpTreeError, json.JSONDecodeError, ValidationError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1

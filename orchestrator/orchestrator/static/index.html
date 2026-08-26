@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>ex-co-model</title>
+<style>
+  body { margin: 0; font-family: system-ui, sans-serif; background: #16181d; color: #ddd; display: flex; height: 100vh; }
+  #viewport { flex: 1; }
+  #side { width: 340px; padding: 12px; display: flex; flex-direction: column; gap: 8px; border-left: 1px solid #333; }
+  textarea { width: 100%; height: 80px; background: #222; color: #ddd; border: 1px solid #444; box-sizing: border-box; }
+  button { padding: 8px; background: #3a6; color: #fff; border: 0; cursor: pointer; }
+  button:disabled { background: #555; cursor: wait; }
+  #status { font-size: 13px; color: #9b9; min-height: 18px; white-space: pre-wrap; }
+  #tree { flex: 1; overflow: auto; background: #111; padding: 8px; font-size: 11px; }
+  h3 { margin: 4px 0; font-size: 13px; color: #888; }
+</style>
+</head>
+<body>
+<div id="viewport"></div>
+<div id="side">
+  <h3>指令</h3>
+  <textarea id="instruction" placeholder="例：一艘太空护卫舰，船尾装两个引擎喷口"></textarea>
+  <button id="go">应用</button>
+  <div id="status"></div>
+  <h3>OpTree</h3>
+  <pre id="tree">(empty)</pre>
+</div>
+<script type="importmap">
+{"imports": {"three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+             "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"}}
+</script>
+<script type="module">
+import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+const el = document.getElementById("viewport");
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x2a2e35);
+const camera = new THREE.PerspectiveCamera(50, el.clientWidth / el.clientHeight, 0.1, 5000);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(el.clientWidth, el.clientHeight);
+el.appendChild(renderer.domElement);
+const controls = new OrbitControls(camera, renderer.domElement);
+scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+const key = new THREE.DirectionalLight(0xffffff, 1.6);
+key.position.set(30, -30, 40);
+scene.add(key);
+scene.add(new THREE.GridHelper(100, 20, 0x444444, 0x333333));
+
+let current = null;
+function frame(obj) {
+  const box = new THREE.Box3().setFromObject(obj);
+  const size = box.getSize(new THREE.Vector3()).length() || 10;
+  const center = box.getCenter(new THREE.Vector3());
+  camera.position.set(center.x + size * 0.7, center.y - size * 0.7, center.z + size * 0.5);
+  controls.target.copy(center);
+  controls.update();
+}
+function loadModel() {
+  new GLTFLoader().load("/model.glb?t=" + Date.now(), (g) => {
+    if (current) scene.remove(current);
+    current = g.scene;
+    scene.add(current);
+    frame(current);
+  }, undefined, () => {});
+}
+async function refreshState() {
+  const s = await (await fetch("/api/state")).json();
+  document.getElementById("tree").textContent =
+    s.tree ? JSON.stringify(s.tree, null, 1) : "(empty)";
+}
+document.getElementById("go").onclick = async () => {
+  const btn = document.getElementById("go");
+  const status = document.getElementById("status");
+  const instruction = document.getElementById("instruction").value.trim();
+  if (!instruction) return;
+  btn.disabled = true; status.textContent = "AI 建模中…（首次构建可能要一两分钟）";
+  try {
+    const r = await (await fetch("/api/apply", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ instruction }),
+    })).json();
+    if (r.ok) {
+      status.textContent = `完成（${r.rounds} 轮，${r.nodes} 节点）`;
+      await refreshState();
+      loadModel();
+    } else {
+      status.textContent = "失败：" + r.error;
+    }
+  } catch (e) {
+    status.textContent = "请求失败：" + e;
+  }
+  btn.disabled = false;
+};
+refreshState();
+loadModel();
+(function loop() { requestAnimationFrame(loop); renderer.render(scene, camera); })();
+</script>
+</body>
+</html>

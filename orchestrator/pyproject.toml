@@ -17,5 +17,8 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 include = ["orchestrator*"]
 
+[tool.setuptools.package-data]
+orchestrator = ["static/*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
