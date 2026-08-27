@@ -8,7 +8,14 @@
 
 MVP（v1.1 止）交付的是本地 web 工具：Python orchestrator + Blender headless + stdlib server + three.js。本文档定义它的下一个形态：**可编译、可上架 Steam、与 excape-from-expanse 配套分发的桌面软件**。
 
-产品定位：**游戏的 mod/UGC 工具**——玩家用自然语言+图片给 excape-from-expanse 造舰船资产。
+产品定位：**游戏的 mod/UGC 工具**——玩家为 excape-from-expanse 造舰船资产。不是纯对话工具，而是**"拼装式编辑器 + AI 助手"**：
+
+- **手动拼装（kitbash）**：玩家在 3D 视口里直接拖部件、摆位置、开槽、缩放。边界明确：**不做** Fusion 360 式的顶点/曲线/草图编辑——玩家不碰曲线、不手动对齐边缘（形态上更接近 Space Engineers / KSP 的搭建，而非 CAD）
+- **自动对齐**：部件声明吸附点/接口，拖动时自动吸附到最近的面/边缘/接口（确定性几何计算，不依赖 AI）
+- **外部模型导入**：玩家下载的 GLB/FBX 归一化尺寸/朝向后作为一种"部件"进库，参与拼装（导入 mesh 不可参数化编辑，但可摆放/缩放/开槽）
+- **AI 演算补形（核心差异化）**：SE/KSP 里"功能区搭好了，外形糊不出来"是玩家最大痛点。本工具的闭环是——**玩家摆功能区（手动+吸附）→ AI 以这些部件为锚点演算船体外形（OpTree 生成包裹几何）→ 玩家局部调整或下指令 → 风格库精修 → 导出**。玩家负责 idea，AI 负责把粗糙拼装演算成可游戏的精美模型
+- **风格库**：玩家选中面/区域指定风格（如"军用"），AI 从风格库（装饰件库 + 风格化 prompt）生成 greeble 精修——面板线、散热口、装甲板，落到 OpTree 就是 attach_part + boolean 序列
+- **手动与 AI 统一**：每一次手动拖拽也生成 OpTree 节点。手动摆的部件 LLM 看得懂、改得动；撤销/重做 = DAG 重放；缓存增量重算原样复用
 
 ### 已确认的关键决策
 
@@ -21,11 +28,14 @@ MVP（v1.1 止）交付的是本地 web 工具：Python orchestrator + Blender h
 | App 壳 | pywebview + PyInstaller（onedir），复用现有 Python 代码与 three.js UI |
 | Blender | 官方 portable 包捆绑进安装包（约 350MB/平台） |
 
-### 范围拆分（三个独立子项目，本文档只管 1）
+### 范围拆分（独立子项目，本文档只管 1）
 
-1. **ex-co-model 桌面 app**（本仓库，本文档）✅
-2. 游戏侧 GLB 运行时加载（excape-from-expanse 仓库，另行立 spec）
-3. Steam Workshop 上传（后置；MVP 先导出 GLB 到目录，玩家手动传 Workshop）
+1. **ex-co-model 桌面 app**（本仓库，本文档）✅ —— 打包分发层，壳与功能解耦
+2. **交互拼装编辑器**（本仓库，后续 spec）—— 视口直接操作 + 吸附对齐 + 手动操作映射为 OpTree 节点 + AI 演算补形
+3. **外部模型导入**（本仓库，后续 spec）—— GLB/FBX 归一化进部件库
+4. **风格库**（本仓库，后续 spec）—— greeble 装饰件库 + 区域风格化
+5. **游戏侧 GLB 运行时加载**（excape-from-expanse 仓库，另行立 spec）
+6. **Steam Workshop 上传**（后置；MVP 先导出 GLB 到目录，玩家手动传 Workshop）
 
 ## 2. 架构
 
@@ -92,10 +102,11 @@ Web UI 增加设置区（server 加 `/api/settings` GET/POST）：
 - 新增：数据目录解析（paths.py）、Blender 查找顺序、settings.json 加载链、app 入口 smoke（headless 环境跳过 webview 创建）
 - 验收：打出的包在干净环境（无 Python、无 Blender、无 .env）跑通 设置 key → apply → preview → 导出 GLB
 
-## 8. 不做（YAGNI）
+## 8. 不做（YAGNI，本子项目范围内）
 
-- Steam Workshop 上传（子项目 3）
-- 游戏侧运行时加载器（子项目 2）
+- 交互拼装编辑器、外部模型导入、风格库（子项目 2/3/4，另立 spec）
+- Steam Workshop 上传（子项目 6）
+- 游戏侧运行时加载器（子项目 5）
 - 多资产管理、资产库浏览
 - 自动更新（交给 Steam）
 - 代码签名/公证自动化
