@@ -2,6 +2,8 @@ import json
 
 import pytest
 
+from optree.schema import OpTree
+
 from orchestrator.core import run_apply
 from orchestrator.errors import OrchestratorError
 from orchestrator.llm import FakeLLMClient
@@ -65,7 +67,6 @@ def test_max_rounds_exceeded_raises():
 
 
 def test_current_tree_passed_to_messages():
-    from optree.schema import OpTree
     current = OpTree.model_validate(json.loads(VALID_TREE))
     llm = FakeLLMClient([VALID_TREE])
     run_apply(llm, "加长到40米", current)
@@ -76,3 +77,63 @@ def test_available_parts_reach_prompt():
     llm = FakeLLMClient([VALID_TREE])
     run_apply(llm, "加一门炮", None, available_parts=["pdc_turret"])
     assert "pdc_turret" in llm.calls[0][1]["content"]
+
+
+def _tree_two_boxes():
+    return OpTree.model_validate({"nodes": {
+        "hull": {"op": "primitive", "params": {"type": "box", "size": [40, 8, 6]}},
+        "mast": {"op": "primitive", "params": {"type": "box", "size": [1, 1, 5],
+                                               "location": [5, 0, 5]}},
+        "out": {"op": "export_fbx", "inputs": ["hull"]},
+    }})
+
+
+def test_focus_edit_accepts_subtree_only_change():
+    old = _tree_two_boxes()
+    changed = {"nodes": {
+        "hull": {"op": "primitive", "params": {"type": "box", "size": [40, 8, 6]}},
+        "mast": {"op": "primitive", "params": {"type": "box", "size": [1, 1, 9],
+                                               "location": [5, 0, 5]}},
+        "out": {"op": "export_fbx", "inputs": ["hull"]},
+    }}
+    llm = FakeLLMClient([json.dumps(changed)])
+    result = run_apply(llm, "make the mast taller", old, focus_node="mast")
+    assert result.tree.nodes["mast"].params.size[2] == 9
+
+
+def test_focus_edit_rejects_frozen_node_change_then_recovers():
+    old = _tree_two_boxes()
+    bad = {"nodes": {
+        "hull": {"op": "primitive", "params": {"type": "box", "size": [99, 8, 6]}},
+        "mast": {"op": "primitive", "params": {"type": "box", "size": [1, 1, 9],
+                                               "location": [5, 0, 5]}},
+        "out": {"op": "export_fbx", "inputs": ["hull"]},
+    }}
+    good = {"nodes": {
+        "hull": {"op": "primitive", "params": {"type": "box", "size": [40, 8, 6]}},
+        "mast": {"op": "primitive", "params": {"type": "box", "size": [1, 1, 9],
+                                               "location": [5, 0, 5]}},
+        "out": {"op": "export_fbx", "inputs": ["hull"]},
+    }}
+    llm = FakeLLMClient([json.dumps(bad), json.dumps(good)])
+    result = run_apply(llm, "make the mast taller", old, focus_node="mast")
+    assert result.rounds == 2
+    # the rejection feedback must name the frozen node
+    assert "hull" in llm.calls[1][-1]["content"] or "hull" in str(llm.calls)
+
+
+def test_focus_edit_unknown_node_raises():
+    llm = FakeLLMClient([])
+    with pytest.raises(OrchestratorError, match="not in current tree"):
+        run_apply(llm, "x", _tree_two_boxes(), focus_node="nope")
+
+
+def test_focus_edit_rejects_focus_deletion():
+    old = _tree_two_boxes()
+    deleted = {"nodes": {
+        "hull": {"op": "primitive", "params": {"type": "box", "size": [40, 8, 6]}},
+        "out": {"op": "export_fbx", "inputs": ["hull"]},
+    }}
+    llm = FakeLLMClient([json.dumps(deleted)] * 3)
+    with pytest.raises(OrchestratorError, match="after 3 rounds"):
+        run_apply(llm, "delete the mast", old, focus_node="mast")

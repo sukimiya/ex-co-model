@@ -35,7 +35,8 @@ keep every unrelated node byte-identical (names, params, structure).\
 
 
 def build_messages(instruction: str, current_tree: OpTree | None,
-                   available_parts: list[str] | None = None) -> list[dict]:
+                   available_parts: list[str] | None = None,
+                   focus_node: str | None = None) -> list[dict]:
     user = ""
     if current_tree is not None:
         tree_json = json.dumps(
@@ -46,6 +47,13 @@ def build_messages(instruction: str, current_tree: OpTree | None,
         user += f"Current OpTree:\n```json\n{tree_json}\n```\n\n"
     if available_parts:
         user += "Available parts: " + ", ".join(available_parts) + "\n\n"
+    if focus_node is not None:
+        user += (
+            f"Focus node: {focus_node}\n"
+            "Apply the instruction ONLY to this node: you may change its params, "
+            "change its downstream dependents, and add new nodes downstream of it. "
+            "Every other existing node MUST remain byte-identical (name, inputs, params).\n\n"
+        )
     user += f"Instruction: {instruction}"
     return [
         {"role": "system", "content": SYSTEM_PROMPT},

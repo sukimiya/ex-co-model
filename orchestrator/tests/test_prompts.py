@@ -67,3 +67,9 @@ def test_build_messages_shows_part_metadata():
 def test_build_messages_without_parts_omits_section():
     msgs = build_messages("一艘船", None)
     assert "Available parts" not in msgs[1]["content"]
+
+
+def test_build_messages_with_focus_node():
+    msgs = build_messages("make it taller", sample_tree(), focus_node="mast")
+    assert "Focus node: mast" in msgs[-1]["content"]
+    assert "byte-identical" in msgs[-1]["content"]

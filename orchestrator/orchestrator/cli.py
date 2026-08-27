@@ -30,6 +30,8 @@ def main(argv: list[str] | None = None, llm: LLMClient | None = None) -> int:
     a = sub.add_parser("apply", parents=[common], help="apply a natural-language instruction")
     a.add_argument("instruction")
     a.add_argument("--check", action="store_true", help="vision self-check after apply")
+    a.add_argument("--node", default=None,
+                   help="edit only this node; all other nodes are frozen")
     sub.add_parser("build", parents=[common], help="build the current tree to fbx")
     sub.add_parser("show", parents=[common], help="print the current tree")
     sub.add_parser("preview", parents=[common], help="build and render a preview png")
@@ -46,7 +48,8 @@ def main(argv: list[str] | None = None, llm: LLMClient | None = None) -> int:
             if args.parts.exists():
                 index = PartsIndex.load(args.parts)
                 parts = [index.describe(n) for n in index.names()]
-            result = session.apply(client, args.instruction, available_parts=parts)
+            result = session.apply(client, args.instruction, available_parts=parts,
+                                   focus_node=args.node)
             print(f"applied in rounds={result.rounds}, nodes={len(result.tree.nodes)}")
             if args.check:
                 print(self_check(

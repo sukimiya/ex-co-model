@@ -20,8 +20,10 @@ class Session:
             )
 
     def apply(self, llm: LLMClient, instruction: str,
-              available_parts: list[str] | None = None) -> ApplyResult:
-        result = run_apply(llm, instruction, self.tree, available_parts=available_parts)
+              available_parts: list[str] | None = None,
+              focus_node: str | None = None) -> ApplyResult:
+        result = run_apply(llm, instruction, self.tree,
+                           available_parts=available_parts, focus_node=focus_node)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.path.with_suffix(".tmp")
         tmp.write_text(
