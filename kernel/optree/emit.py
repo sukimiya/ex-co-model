@@ -10,6 +10,7 @@ from optree.schema import (
     ExportFbxParams,
     PrimitiveParams,
     ScaleToParams,
+    SetMaterialParams,
 )
 
 
@@ -107,6 +108,23 @@ def emit_export_fbx(out: str, src: str, p: ExportFbxParams) -> str:
     return (
         _import_glb(src)
         + f"bpy.ops.export_scene.fbx(filepath={out!r})\n"
+    )
+
+
+def emit_set_material(out: str, src: str, p: SetMaterialParams) -> str:
+    """Assign a Principled BSDF material to every mesh from src."""
+    return (
+        _import_glb(src)
+        + f"mat = bpy.data.materials.new(name={p.name!r})\n"
+        + "mat.use_nodes = True\n"
+        + "bsdf = mat.node_tree.nodes['Principled BSDF']\n"
+        + f"bsdf.inputs['Base Color'].default_value = {_fmt_vec3(tuple(p.base_color))[:-1]}, 1)\n"
+        + f"bsdf.inputs['Metallic'].default_value = {_fmt_num(p.metallic)}\n"
+        + f"bsdf.inputs['Roughness'].default_value = {_fmt_num(p.roughness)}\n"
+        + "for o in imported:\n"
+        + "    o.data.materials.clear()\n"
+        + "    o.data.materials.append(mat)\n"
+        + _export_glb(out)
     )
 
 

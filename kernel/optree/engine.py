@@ -71,6 +71,8 @@ def build(tree: OpTree, workdir: Path, parts_dir: Path | None = None) -> BuildRe
                     str(glbs[name]), str(glbs[node.inputs[0]]),
                     str(index.resolve(node.params.part)), node.params,
                 )
+            elif node.op == "set_material":
+                script += emit.emit_set_material(str(glbs[name]), str(glbs[node.inputs[0]]), node.params)
             elif node.op == "export_fbx":
                 script += emit.emit_export_fbx(str(exports[name]), str(glbs[node.inputs[0]]), node.params)
             script += _SCENE_RESET

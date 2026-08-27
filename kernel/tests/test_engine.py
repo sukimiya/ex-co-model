@@ -191,3 +191,28 @@ def test_build_with_real_library(tmp_path):
         check=True, capture_output=True,
     )
     assert int((tmp_path / "count.txt").read_text()) >= 2
+
+
+@requires_blender
+def test_build_set_material(tmp_path):
+    tree = OpTree.model_validate({"nodes": {
+        "hull": {"op": "primitive", "params": {"type": "box", "size": [4, 2, 1]}},
+        "paint": {"op": "set_material", "inputs": ["hull"],
+                  "params": {"base_color": [0.2, 0.25, 0.3], "metallic": 0.9}},
+    }})
+    result = build(tree, tmp_path)
+    assert result.glbs["paint"].exists()
+
+
+@requires_blender
+def test_set_material_cache_key_changes_with_color(tmp_path):
+    def make(color):
+        return OpTree.model_validate({"nodes": {
+            "hull": {"op": "primitive", "params": {"type": "box"}},
+            "paint": {"op": "set_material", "inputs": ["hull"],
+                      "params": {"base_color": color}},
+        }})
+    a = build(make([0.2, 0.2, 0.2]), tmp_path)
+    b = build(make([0.9, 0.1, 0.1]), tmp_path)
+    assert a.glbs["paint"] != b.glbs["paint"]
+    assert a.glbs["hull"] == b.glbs["hull"]  # upstream node still cached

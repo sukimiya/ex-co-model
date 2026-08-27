@@ -9,6 +9,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 # Finite float: rejects inf/nan. Applied per element inside tuples.
 FiniteFloat = Annotated[float, Field(allow_inf_nan=False)]
 
+# Unit interval [0, 1], finite. Used for PBR material parameters.
+UnitFloat = Annotated[float, Field(allow_inf_nan=False, ge=0.0, le=1.0)]
+
 
 class NodeBase(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -61,6 +64,14 @@ class AttachPartParams(BaseModel):
     part_hash: str | None = None  # injected by the engine, not by users
 
 
+class SetMaterialParams(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = "mat"
+    base_color: tuple[UnitFloat, UnitFloat, UnitFloat] = (0.8, 0.8, 0.8)  # linear RGB 0-1
+    metallic: UnitFloat = 0.0
+    roughness: UnitFloat = 0.5
+
+
 class PrimitiveNode(NodeBase):
     op: Literal["primitive"]
     params: PrimitiveParams
@@ -90,6 +101,12 @@ class AttachPartNode(NodeBase):
     params: AttachPartParams
 
 
+class SetMaterialNode(NodeBase):
+    op: Literal["set_material"]
+    inputs: list[str] = Field(min_length=1, max_length=1)
+    params: SetMaterialParams = SetMaterialParams()
+
+
 class ExportFbxNode(NodeBase):
     op: Literal["export_fbx"]
     inputs: list[str] = Field(min_length=1, max_length=1)
@@ -97,7 +114,7 @@ class ExportFbxNode(NodeBase):
 
 
 Node = Annotated[
-    Union[PrimitiveNode, BevelNode, BooleanSubtractNode, ScaleToNode, AttachPartNode, ExportFbxNode],
+    Union[PrimitiveNode, BevelNode, BooleanSubtractNode, ScaleToNode, AttachPartNode, SetMaterialNode, ExportFbxNode],
     Field(discriminator="op"),
 ]
 

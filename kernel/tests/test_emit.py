@@ -6,12 +6,14 @@ from optree.emit import (
     emit_primitive,
     emit_scale_to,
 )
+from optree import emit
 from optree.schema import (
     AttachPartParams,
     BevelParams,
     ExportFbxParams,
     PrimitiveParams,
     ScaleToParams,
+    SetMaterialParams,
 )
 
 
@@ -73,3 +75,12 @@ def test_emit_attach_part_imports_both_and_transforms():
     assert "(0, 90, 0)" in code
     assert "1.5" in code
     assert "export_scene.gltf" in code
+
+
+def test_emit_set_material():
+    code = emit.emit_set_material("out.glb", "src.glb", SetMaterialParams(
+        base_color=(0.2, 0.25, 0.3), metallic=0.9, roughness=0.35))
+    assert "Principled BSDF" in code
+    assert "bsdf.inputs['Base Color'].default_value = (0.2, 0.25, 0.3, 1)" in code
+    assert "bsdf.inputs['Metallic'].default_value = 0.9" in code
+    assert "materials.append(mat)" in code

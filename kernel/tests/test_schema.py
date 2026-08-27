@@ -138,3 +138,32 @@ def test_attach_part_rejects_zero_scale():
                 },
             }
         })
+
+
+def test_set_material_valid():
+    tree = OpTree.model_validate({"nodes": {
+        "hull": {"op": "primitive", "params": {"type": "box"}},
+        "paint": {"op": "set_material", "inputs": ["hull"],
+                  "params": {"base_color": [0.2, 0.25, 0.3], "metallic": 0.9, "roughness": 0.35}},
+    }})
+    node = tree.nodes["paint"]
+    assert node.op == "set_material"
+    assert node.params.metallic == 0.9
+
+
+def test_set_material_rejects_out_of_range():
+    with pytest.raises(ValidationError):
+        OpTree.model_validate({"nodes": {
+            "hull": {"op": "primitive", "params": {"type": "box"}},
+            "paint": {"op": "set_material", "inputs": ["hull"],
+                      "params": {"metallic": 1.5}},
+        }})
+
+
+def test_set_material_rejects_extra_key():
+    with pytest.raises(ValidationError):
+        OpTree.model_validate({"nodes": {
+            "hull": {"op": "primitive", "params": {"type": "box"}},
+            "paint": {"op": "set_material", "inputs": ["hull"],
+                      "params": {"shader": "glow"}},
+        }})
