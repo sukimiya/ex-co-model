@@ -109,9 +109,11 @@ def make_server(session_path, workdir, parts_dir, llm_factory,
                 payload = json.loads(
                     self.rfile.read(int(self.headers["Content-Length"])))
                 instruction = payload["instruction"]
+                focus = payload.get("node") or None
                 session = Session(state.session_path)
                 result = session.apply(state.llm_factory(), instruction,
-                                       available_parts=state.part_names())
+                                       available_parts=state.part_names(),
+                                       focus_node=focus)
                 # Build once and keep the result cached for /model.glb.
                 state.result = build(session.tree, state.workdir,
                                      parts_dir=state.parts_dir)

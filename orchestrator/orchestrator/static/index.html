@@ -20,6 +20,7 @@
 <div id="side">
   <h3>指令</h3>
   <textarea id="instruction" placeholder="例：一艘太空护卫舰，船尾装两个引擎喷口"></textarea>
+  <select id="focus"><option value="">（整棵树）</option></select>
   <button id="go">应用</button>
   <div id="status"></div>
   <h3>OpTree</h3>
@@ -77,6 +78,15 @@ async function refreshState() {
   const s = await (await fetch("/api/state")).json();
   document.getElementById("tree").textContent =
     s.tree ? JSON.stringify(s.tree, null, 1) : "(empty)";
+  const focus = document.getElementById("focus");
+  const prev = focus.value;
+  focus.innerHTML = '<option value="">（整棵树）</option>';
+  if (s.tree) for (const name of Object.keys(s.tree.nodes)) {
+    const opt = document.createElement("option");
+    opt.value = opt.textContent = name;
+    focus.appendChild(opt);
+  }
+  focus.value = prev;
 }
 document.getElementById("go").onclick = async () => {
   const btn = document.getElementById("go");
@@ -87,7 +97,7 @@ document.getElementById("go").onclick = async () => {
   try {
     const r = await (await fetch("/api/apply", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ instruction }),
+      body: JSON.stringify({ instruction, node: document.getElementById("focus").value || undefined }),
     })).json();
     if (r.ok) {
       status.textContent = `完成（${r.rounds} 轮，${r.nodes} 节点）`;

@@ -70,6 +70,23 @@ def test_state_empty_then_populated(server):
     assert state["tree"] is not None and state["nodes"] == 2
 
 
+def test_apply_passes_focus_node(server, monkeypatch):
+    srv, _ = server
+    captured = {}
+
+    def fake_apply(self, llm, instruction, available_parts=None,
+                   focus_node=None):
+        captured["focus_node"] = focus_node
+        # Stop before build so no Blender is needed.
+        raise ValueError("stop before build")
+
+    monkeypatch.setattr("orchestrator.session.Session.apply", fake_apply)
+    status, data = _post(srv, "/api/apply",
+                         {"instruction": "给桅杆加天线", "node": "mast"})
+    assert status == 200 and data["ok"] is False
+    assert captured["focus_node"] == "mast"
+
+
 def test_apply_error_is_structured(server):
     srv, fake = server
     fake.responses = ["garbage"] * 3
