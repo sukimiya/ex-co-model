@@ -13,7 +13,7 @@ Output contract:
 - inputs reference other node names; every reference must exist; no cycles.
 - Units are meters. Keep the final export_fbx node pointing at the final geometry.
 
-Node types (v1):
+Node types (v1.1):
 - primitive: no inputs. params: type ("box"|"cylinder"), size [x,y,z] (box, full \
 extents), radius/depth/vertices (cylinder), location [x,y,z].
 - bevel: inputs [src]. params: width, segments.
@@ -22,7 +22,17 @@ extents), radius/depth/vertices (cylinder), location [x,y,z].
 axis equals length_m.
 - attach_part: inputs [parent]. params: part (library part name), location [x,y,z], \
 rotation_deg [x,y,z], scale (>0). Attaches a precision library part onto the parent.
+- set_material: inputs [src]. params: base_color [r,g,b] (0-1), metallic (0-1), \
+roughness (0-1), name. Assigns a PBR material to ALL meshes produced by src. Place \
+after geometry ops, before export_fbx.
 - export_fbx: inputs [src]. params: filename (plain basename ending in .fbx).
+
+Axis convention (meters, world space):
+- +X = bow (front) / -X = stern (rear); a ship's length runs along X.
+- +Z = dorsal (top/船背) / -Z = ventral (keel/船底).
+- +Y = starboard (右舷, right side looking from stern toward bow) / -Y = port (左舷).
+Map 船头/船尾/船背/船底/左舷/右舷 and bow/stern/dorsal/ventral/port/starboard with this \
+convention. attach_part locations and primitive locations use it.
 
 Rules:
 - To ADD a component (engine, turret, antenna...), ALWAYS use attach_part with a \

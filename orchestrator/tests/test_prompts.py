@@ -73,3 +73,14 @@ def test_build_messages_with_focus_node():
     msgs = build_messages("make it taller", sample_tree(), focus_node="mast")
     assert "Focus node: mast" in msgs[-1]["content"]
     assert "byte-identical" in msgs[-1]["content"]
+
+
+def test_system_prompt_defines_axis_convention():
+    assert "+X = bow" in SYSTEM_PROMPT
+    assert "+Z = dorsal" in SYSTEM_PROMPT
+    assert "+Y = starboard" in SYSTEM_PROMPT
+
+
+def test_system_prompt_documents_set_material():
+    assert "set_material" in SYSTEM_PROMPT
+    assert "metallic" in SYSTEM_PROMPT
