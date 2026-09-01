@@ -176,7 +176,9 @@ def test_get_settings_hides_key(server):
 
 
 def test_post_settings_saves_and_hides(server, monkeypatch):
-    monkeypatch.delenv("MOONSHOT_API_KEY", raising=False)
+    # Handler assigns os.environ directly; setenv records the original so
+    # monkeypatch restores (or removes) it at teardown.
+    monkeypatch.setenv("MOONSHOT_API_KEY", "")
     status, data = _post(server[0], "/api/settings",
                          {"endpoint": "https://x/v1", "model": "m1",
                           "api_key": "sk-secret"})
@@ -191,7 +193,8 @@ def test_post_settings_saves_and_hides(server, monkeypatch):
     assert os.environ["MOONSHOT_API_KEY"] == "sk-secret"
 
 
-def test_post_settings_empty_key_keeps_stored(server):
+def test_post_settings_empty_key_keeps_stored(server, monkeypatch):
+    monkeypatch.setenv("MOONSHOT_API_KEY", "")  # restored/removed at teardown
     _post(server[0], "/api/settings",
           {"endpoint": "https://x/v1", "model": "m1", "api_key": "sk-secret"})
     status, data = _post(server[0], "/api/settings",

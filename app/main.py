@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 import socket
+import sys
 import threading
 import time
 import urllib.request
@@ -35,10 +36,14 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     from orchestrator.config import load_env
+    from orchestrator.errors import OrchestratorError
     from orchestrator.paths import user_data_dir
     from orchestrator.server import make_server
 
-    load_env()  # .env in cwd if present; settings.json under data dir
+    try:
+        load_env()  # .env in cwd if present; settings.json under data dir
+    except OrchestratorError as e:
+        print(f"warning: {e}", file=sys.stderr)  # UI will surface it; keep booting
     data = user_data_dir()
     (data / "build").mkdir(parents=True, exist_ok=True)
     port = free_port()

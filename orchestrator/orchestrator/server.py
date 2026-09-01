@@ -150,6 +150,8 @@ def make_server(session_path, workdir, parts_dir, llm_factory,
                     for k, v in current.items():
                         if v:
                             os.environ[SETTINGS_KEYS[k]] = v
+                        else:
+                            os.environ.pop(SETTINGS_KEYS[k], None)
                     self._send_json(200, {"ok": True})
                 except (OrchestratorError, json.JSONDecodeError,
                         ValueError, TypeError, KeyError) as e:
