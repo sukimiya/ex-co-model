@@ -1,6 +1,7 @@
 """Local web UI: stdlib http server + three.js frontend. Single user, localhost."""
 
 import json
+import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -9,21 +10,37 @@ from optree.errors import OpTreeError
 from optree.render import render_glb
 from pydantic import ValidationError
 
+from orchestrator.config import SETTINGS_KEYS, load_settings, save_settings
 from orchestrator.errors import OrchestratorError
+from orchestrator.paths import user_data_dir
 from orchestrator.pipeline import final_glb
 from orchestrator.session import Session
 
 STATIC_DIR = Path(__file__).parent / "static"
 
+PRESETS = [
+    {"label": "Kimi Code", "endpoint": "https://api.kimi.com/coding/v1", "model": "kimi-for-coding"},
+    {"label": "Kimi (Moonshot)", "endpoint": "https://api.moonshot.ai/v1", "model": "kimi-k2-0711-preview"},
+    {"label": "DeepSeek", "endpoint": "https://api.deepseek.com/v1", "model": "deepseek-chat"},
+    {"label": "OpenAI", "endpoint": "https://api.openai.com/v1", "model": "gpt-4o"},
+]
+
 
 class _State:
     def __init__(self, session_path: Path, workdir: Path,
-                 parts_dir: Path | None, llm_factory):
+                 parts_dir: Path | None, llm_factory,
+                 settings_path: Path | None = None):
         self.session_path = Path(session_path)
         self.workdir = Path(workdir)
         self.parts_dir = parts_dir
         self.llm_factory = llm_factory
         self.built = False  # whether model.glb/preview are up to date
+        self._settings_path = Path(settings_path) if settings_path else None
+
+    def settings_path(self) -> Path:
+        if self._settings_path is None:
+            self._settings_path = user_data_dir() / "settings.json"
+        return self._settings_path
 
     def part_names(self) -> list[str] | None:
         if self.parts_dir and Path(self.parts_dir).exists():
@@ -34,8 +51,10 @@ class _State:
 
 
 def make_server(session_path, workdir, parts_dir, llm_factory,
-                host="127.0.0.1", port=8787) -> ThreadingHTTPServer:
-    state = _State(session_path, workdir, parts_dir, llm_factory)
+                host="127.0.0.1", port=8787,
+                settings_path: Path | None = None) -> ThreadingHTTPServer:
+    state = _State(session_path, workdir, parts_dir, llm_factory,
+                   settings_path=settings_path)
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):  # quiet
@@ -73,6 +92,20 @@ def make_server(session_path, workdir, parts_dir, llm_factory,
                     "nodes": len(tree["nodes"]) if tree else 0,
                     "parts": state.part_names() or [],
                 })
+            elif self.path == "/api/settings":
+                try:
+                    s = load_settings(state.settings_path())
+                    self._send_json(200, {
+                        "endpoint": s.get("endpoint", ""),
+                        "model": s.get("model", ""),
+                        "has_key": bool(s.get("api_key")),
+                        "presets": PRESETS,
+                    })
+                except OrchestratorError as e:
+                    self._send_json(200, {"endpoint": "", "model": "",
+                                          "has_key": False,
+                                          "presets": PRESETS,
+                                          "error": str(e)})
             elif self.path.startswith("/model.glb"):
                 try:
                     session = Session(state.session_path)
@@ -102,6 +135,26 @@ def make_server(session_path, workdir, parts_dir, llm_factory,
                 self._send(404, b"not found", "text/plain")
 
         def do_POST(self):
+            if self.path == "/api/settings":
+                try:
+                    payload = json.loads(
+                        self.rfile.read(int(self.headers["Content-Length"])))
+                    current = load_settings(state.settings_path())
+                    if payload.get("api_key"):
+                        current["api_key"] = payload["api_key"]
+                    current["endpoint"] = payload.get(
+                        "endpoint", current.get("endpoint", ""))
+                    current["model"] = payload.get(
+                        "model", current.get("model", ""))
+                    save_settings(state.settings_path(), current)
+                    for k, v in current.items():
+                        if v:
+                            os.environ[SETTINGS_KEYS[k]] = v
+                    self._send_json(200, {"ok": True})
+                except (OrchestratorError, json.JSONDecodeError,
+                        ValueError, TypeError, KeyError) as e:
+                    self._send_json(200, {"ok": False, "error": str(e)})
+                return
             if self.path != "/api/apply":
                 self._send(404, b"not found", "text/plain")
                 return
@@ -131,8 +184,9 @@ def make_server(session_path, workdir, parts_dir, llm_factory,
 
 
 def serve(session_path, workdir, parts_dir, llm_factory,
-          host="127.0.0.1", port=8787) -> None:
+          host="127.0.0.1", port=8787,
+          settings_path: Path | None = None) -> None:
     server = make_server(session_path, workdir, parts_dir, llm_factory,
-                         host, port)
+                         host, port, settings_path=settings_path)
     print(f"serving on http://{host}:{server.server_address[1]}")
     server.serve_forever()

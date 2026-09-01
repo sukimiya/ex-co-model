@@ -1,4 +1,5 @@
 import json
+import os
 import socket
 import threading
 from http.client import HTTPConnection
@@ -22,7 +23,8 @@ VALID_TREE = json.dumps({
 def server(tmp_path):
     fake = FakeLLMClient([VALID_TREE, VALID_TREE])
     srv = make_server(tmp_path / "s.json", tmp_path / "w", None,
-                      llm_factory=lambda: fake, port=0)
+                      llm_factory=lambda: fake, port=0,
+                      settings_path=tmp_path / "settings.json")
     thread = threading.Thread(target=srv.serve_forever, daemon=True)
     thread.start()
     yield srv, fake
@@ -162,3 +164,56 @@ def test_post_bad_content_length_is_structured(server):
     head, _, body = raw.partition(b"\r\n\r\n")
     assert b"200" in head.split(b"\r\n", 1)[0]
     assert json.loads(body)["ok"] is False
+
+
+def test_get_settings_hides_key(server):
+    status, body = _get(server[0], "/api/settings")
+    assert status == 200
+    data = json.loads(body)
+    assert "api_key" not in data
+    assert data["has_key"] is False
+    assert any(p["label"] == "Kimi Code" for p in data["presets"])
+
+
+def test_post_settings_saves_and_hides(server, monkeypatch):
+    monkeypatch.delenv("MOONSHOT_API_KEY", raising=False)
+    status, data = _post(server[0], "/api/settings",
+                         {"endpoint": "https://x/v1", "model": "m1",
+                          "api_key": "sk-secret"})
+    assert status == 200 and data["ok"] is True
+
+    status, body = _get(server[0], "/api/settings")
+    data = json.loads(body)
+    assert data["endpoint"] == "https://x/v1"
+    assert data["model"] == "m1"
+    assert data["has_key"] is True
+    assert b"sk-secret" not in body  # key never serialized
+    assert os.environ["MOONSHOT_API_KEY"] == "sk-secret"
+
+
+def test_post_settings_empty_key_keeps_stored(server):
+    _post(server[0], "/api/settings",
+          {"endpoint": "https://x/v1", "model": "m1", "api_key": "sk-secret"})
+    status, data = _post(server[0], "/api/settings",
+                         {"endpoint": "https://y/v1", "model": "m2",
+                          "api_key": ""})
+    assert data["ok"] is True
+    _, body = _get(server[0], "/api/settings")
+    data = json.loads(body)
+    assert data["endpoint"] == "https://y/v1"
+    assert data["has_key"] is True
+
+
+def test_settings_malformed_file_returns_error(server, tmp_path):
+    (tmp_path / "settings.json").write_text("{not json", encoding="utf-8")
+    status, body = _get(server[0], "/api/settings")
+    data = json.loads(body)
+    assert status == 200
+    assert "error" in data
+    assert "presets" in data
+
+    status, data = _post(server[0], "/api/settings",
+                         {"endpoint": "https://x/v1", "model": "m1",
+                          "api_key": "sk-secret"})
+    assert status == 200 and data["ok"] is False
+    assert "error" in data

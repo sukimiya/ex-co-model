@@ -13,6 +13,7 @@
   #status { font-size: 13px; color: #9b9; min-height: 18px; white-space: pre-wrap; }
   #tree { flex: 1; overflow: auto; background: #111; padding: 8px; font-size: 11px; }
   h3 { margin: 4px 0; font-size: 13px; color: #888; }
+  input, select { background: #222; color: #ddd; border: 1px solid #444; padding: 6px; }
 </style>
 </head>
 <body>
@@ -25,6 +26,12 @@
   <div id="status"></div>
   <h3>OpTree</h3>
   <pre id="tree">(empty)</pre>
+  <h3>设置（BYOK）</h3>
+  <select id="preset"></select>
+  <input id="cfg-endpoint" placeholder="endpoint，如 https://api.moonshot.ai/v1">
+  <input id="cfg-model" placeholder="model，如 kimi-k2-0711-preview">
+  <input id="cfg-key" type="password" placeholder="API key（留空 = 不修改）">
+  <button id="cfg-save">保存设置</button>
 </div>
 <script type="importmap">
 {"imports": {"three": "https://unpkg.com/three@0.160.0/build/three.module.js",
@@ -104,13 +111,50 @@ document.getElementById("go").onclick = async () => {
       await refreshState();
       loadModel();
     } else {
-      status.textContent = "失败：" + r.error;
+      status.textContent = "失败：" + r.error +
+        (String(r.error).includes("MOONSHOT_API_KEY") ? "（请先在下方设置里填 API key）" : "");
     }
   } catch (e) {
     status.textContent = "请求失败：" + e;
   }
   btn.disabled = false;
 };
+async function loadSettings() {
+  const s = await (await fetch("/api/settings")).json();
+  if (s.error) {
+    document.getElementById("status").textContent = "设置读取失败：" + s.error;
+  }
+  document.getElementById("cfg-endpoint").value = s.endpoint || "";
+  document.getElementById("cfg-model").value = s.model || "";
+  const sel = document.getElementById("preset");
+  sel.innerHTML = '<option value="">预设…</option>';
+  for (const p of s.presets) {
+    const o = document.createElement("option");
+    o.textContent = p.label;
+    o.value = p.endpoint + "|" + p.model;
+    sel.appendChild(o);
+  }
+  sel.onchange = () => {
+    if (!sel.value) return;
+    const [ep, m] = sel.value.split("|");
+    document.getElementById("cfg-endpoint").value = ep;
+    document.getElementById("cfg-model").value = m;
+  };
+}
+document.getElementById("cfg-save").onclick = async () => {
+  const body = {
+    endpoint: document.getElementById("cfg-endpoint").value.trim(),
+    model: document.getElementById("cfg-model").value.trim(),
+    api_key: document.getElementById("cfg-key").value.trim(),
+  };
+  const r = await (await fetch("/api/settings", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  })).json();
+  document.getElementById("status").textContent = r.ok ? "设置已保存" : "保存失败：" + r.error;
+  if (r.ok) document.getElementById("cfg-key").value = "";
+};
+loadSettings();
 refreshState();
 loadModel();
 (function loop() { requestAnimationFrame(loop); renderer.render(scene, camera); })();
