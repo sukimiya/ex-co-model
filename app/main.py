@@ -21,11 +21,18 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="ex-co-model")
     parser.add_argument("--smoke", action="store_true",
                         help="boot the server, check /api/state, exit")
+    parser.add_argument("--print-blender", action="store_true",
+                        help="print the resolved blender executable path, exit")
     parser.add_argument("--data-dir", type=Path, default=None)
     args = parser.parse_args(argv)
 
     if args.data_dir is not None:
         os.environ["EXCO_DATA_DIR"] = str(args.data_dir)
+
+    if args.print_blender:
+        from optree.blender_session import find_blender
+        print(find_blender() or "BLENDER NOT FOUND")
+        return 0
 
     from orchestrator.config import load_env
     from orchestrator.paths import user_data_dir

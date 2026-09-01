@@ -7,3 +7,7 @@ __pycache__/
 .venv/
 uv.lock
 .DS_Store
+dist/
+.build-app/
+build/
+*.spec
