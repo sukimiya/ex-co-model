@@ -1,10 +1,12 @@
+import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 import optree.blender_session
-from optree.blender_session import run_blender_script
+from optree.blender_session import find_blender, run_blender_script
 from optree.errors import BlenderError
 from tests.conftest import requires_blender
 
@@ -28,13 +30,13 @@ def test_bad_script_raises_blender_error(tmp_path):
 
 
 def test_missing_blender_raises_blender_error(monkeypatch, tmp_path):
-    monkeypatch.setattr(optree.blender_session, "blender_available", lambda: False)
-    with pytest.raises(BlenderError, match="not found on PATH"):
+    monkeypatch.setattr(optree.blender_session, "find_blender", lambda: None)
+    with pytest.raises(BlenderError, match="blender not found"):
         run_blender_script("pass", tmp_path)
 
 
 def test_blender_timeout_raises_blender_error(monkeypatch, tmp_path):
-    monkeypatch.setattr(optree.blender_session, "blender_available", lambda: True)
+    monkeypatch.setattr(optree.blender_session, "find_blender", lambda: "blender")
 
     def fake_run(*args, **kwargs):
         raise subprocess.TimeoutExpired(cmd="blender", timeout=300)
@@ -45,7 +47,7 @@ def test_blender_timeout_raises_blender_error(monkeypatch, tmp_path):
 
 
 def test_workdir_resolved_to_absolute(monkeypatch, tmp_path):
-    monkeypatch.setattr(optree.blender_session, "blender_available", lambda: True)
+    monkeypatch.setattr(optree.blender_session, "find_blender", lambda: "blender")
     monkeypatch.chdir(tmp_path)
     captured = {}
 
@@ -59,3 +61,42 @@ def test_workdir_resolved_to_absolute(monkeypatch, tmp_path):
     script_arg = captured["cmd"][captured["cmd"].index("--python") + 1]
     assert Path(script_arg).is_absolute()
     assert Path(script_arg).parent == Path(captured["cwd"]) == tmp_path / "relative-dir"
+
+
+def test_find_blender_env_override(monkeypatch, tmp_path):
+    fake = tmp_path / "blender"
+    fake.touch()
+    monkeypatch.setenv("EXCO_BLENDER", str(fake))
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+    assert find_blender() == str(fake)
+
+
+def test_find_blender_env_override_missing_file_ignored(monkeypatch):
+    monkeypatch.setenv("EXCO_BLENDER", "/nonexistent/blender")
+    monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/blender")
+    assert find_blender() == "/usr/bin/blender"
+
+
+def test_find_blender_bundled(monkeypatch, tmp_path):
+    monkeypatch.delenv("EXCO_BLENDER", raising=False)
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", str(tmp_path / "ExCoModel"))
+    bundled = tmp_path / "blender" / "blender.exe"
+    bundled.parent.mkdir(parents=True)
+    bundled.touch()
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+    assert find_blender() == str(bundled)
+
+
+def test_find_blender_path_fallback(monkeypatch):
+    monkeypatch.delenv("EXCO_BLENDER", raising=False)
+    monkeypatch.delattr(sys, "frozen", raising=False)
+    monkeypatch.setattr(shutil, "which", lambda name: "/opt/homebrew/bin/blender")
+    assert find_blender() == "/opt/homebrew/bin/blender"
+
+
+def test_find_blender_none(monkeypatch):
+    monkeypatch.delenv("EXCO_BLENDER", raising=False)
+    monkeypatch.delattr(sys, "frozen", raising=False)
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+    assert find_blender() is None
