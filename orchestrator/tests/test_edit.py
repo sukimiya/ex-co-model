@@ -44,6 +44,11 @@ def test_remove_node_rewires_child():
     assert t.nodes["out"].inputs == ["hull"]
 
 
+def test_remove_node_still_referenced_no_input_rejected():
+    with pytest.raises(OrchestratorError, match="still referenced"):
+        remove_node(make_tree(), "hull")
+
+
 def test_remove_leaf_errors_on_unknown():
     with pytest.raises(OrchestratorError):
         remove_node(make_tree(), "ghost")

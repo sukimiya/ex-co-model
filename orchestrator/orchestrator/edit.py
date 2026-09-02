@@ -56,15 +56,18 @@ def update_transform(tree: OpTree, node_id: str, *, location=None,
 def remove_node(tree: OpTree, node_id: str) -> OpTree:
     node = _node_or_raise(tree, node_id)
     nodes = _dump(tree)
-    del nodes[node_id]
     fallback = node.inputs[0] if node.inputs else None
+    if fallback is None:
+        referenced_by = [name for name, child in nodes.items()
+                         if name != node_id and node_id in child["inputs"]]
+        if referenced_by:
+            raise OrchestratorError(
+                f"cannot remove {node_id!r}: still referenced and has no input")
+    del nodes[node_id]
     for child in nodes.values():
         child["inputs"] = [
             (fallback if ref == node_id else ref) for ref in child["inputs"]
         ]
-        if fallback is None and node_id in [r for r in child["inputs"]]:
-            raise OrchestratorError(
-                f"cannot remove {node_id!r}: still referenced and has no input")
     return _validated(nodes)
 
 
