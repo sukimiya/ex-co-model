@@ -280,7 +280,10 @@ async function onGizmoDrop() {
     body.location = t2b(obj.getWorldPosition(new THREE.Vector3()));
     body.rotation_deg = threeQuatToBlenderEuler(
       obj.getWorldQuaternion(new THREE.Quaternion()));
-    body.scale = obj.getWorldScale(new THREE.Vector3()).x;
+    // Grabbing the scale gizmo near the origin can explode the coefficient;
+    // clamp to a sane range and drop garbage values instead of persisting them.
+    const s = obj.getWorldScale(new THREE.Vector3()).x;
+    if (isFinite(s) && s > 0) body.scale = Math.min(Math.max(s, 0.05), 20);
   }
   lastSnap = null;
   const r = await postEdit(body);

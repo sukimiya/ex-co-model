@@ -4,6 +4,7 @@ import types
 from http.client import HTTPConnection
 
 import pytest
+from optree.errors import OpTreeError
 
 from orchestrator.llm import FakeLLMClient
 from orchestrator.server import make_server
@@ -165,6 +166,21 @@ def test_api_edit_unknown_op(server):
     assert data["ok"] is False
     assert "explode" in data["error"]
     assert calls == {"build": 0, "render": 0}  # failed edits don't rebuild
+
+
+def test_api_edit_build_failure_does_not_persist(server, monkeypatch):
+    srv, session_path, _ = server
+
+    def boom(tree, workdir, parts_dir=None):
+        raise OpTreeError("blender exploded")
+
+    monkeypatch.setattr("orchestrator.server.build", boom)
+    before = session_path.read_text(encoding="utf-8")
+    status, data = _add_turret(srv)
+    assert status == 200 and data["ok"] is False
+    assert "blender exploded" in data["error"]
+    # the failed edit is not persisted; disk and response stay consistent
+    assert session_path.read_text(encoding="utf-8") == before
 
 
 def test_api_snap_within_radius(server):

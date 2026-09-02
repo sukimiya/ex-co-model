@@ -205,12 +205,14 @@ def make_server(session_path, workdir, parts_dir, llm_factory,
                     else:
                         raise OrchestratorError(f"unknown edit op {op!r}")
                     session.tree = t
-                    session.save()
                     state.result = build(session.tree, state.workdir,
                                          parts_dir=state.parts_dir)
                     state.built = True
                     render_glb(final_glb(session.tree, state.result),
                                state.workdir / "out" / "preview.png", state.workdir)
+                    # persist only after build+render succeed, so a failed edit
+                    # never leaves the session file ahead of what the user saw
+                    session.save()
                     tree = {"nodes": {k: v.model_dump(exclude_defaults=True)
                             for k, v in t.nodes.items()}}
                     self._send_json(200, {"ok": True, "tree": tree, "nodes": list(session.tree.nodes)})
