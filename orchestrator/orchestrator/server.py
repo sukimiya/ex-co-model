@@ -2,19 +2,23 @@
 
 import json
 import os
+import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from optree.engine import build
 from optree.errors import OpTreeError
+from optree.parts import PartsIndex
 from optree.render import render_glb
 from pydantic import ValidationError
 
 from orchestrator.config import SETTINGS_KEYS, load_settings, save_settings
+from orchestrator.edit import add_part, cut_slot, remove_node, update_transform
 from orchestrator.errors import OrchestratorError
 from orchestrator.paths import user_data_dir
 from orchestrator.pipeline import final_glb
 from orchestrator.session import Session
+from orchestrator.snap import align_rotation_deg, snap_position
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -44,7 +48,6 @@ class _State:
 
     def part_names(self) -> list[str] | None:
         if self.parts_dir and Path(self.parts_dir).exists():
-            from optree.parts import PartsIndex
             idx = PartsIndex.load(self.parts_dir)
             return [idx.describe(n) for n in idx.names()]
         return None
@@ -125,6 +128,26 @@ def make_server(session_path, workdir, parts_dir, llm_factory,
                     self._send(200, glb.read_bytes(), "model/gltf-binary")
                 except (OpTreeError, OrchestratorError) as e:
                     self._send(500, f"error: {e}".encode(), "text/plain")
+            elif self.path == "/api/parts":
+                if not state.parts_dir:
+                    self._send_json(200, {"parts": []})
+                    return
+                try:
+                    idx = PartsIndex.load(state.parts_dir)
+                    self._send_json(200, {
+                        "parts": [idx.metadata(n) for n in idx.names()]})
+                except OpTreeError as e:
+                    self._send_json(200, {"parts": [], "error": str(e)})
+            elif self.path.startswith("/part.glb"):
+                query = urllib.parse.urlparse(self.path).query
+                name = urllib.parse.parse_qs(query).get("name", [None])[0]
+                try:
+                    if not name or not state.parts_dir:
+                        raise OpTreeError("missing part name or parts dir")
+                    glb = PartsIndex.load(state.parts_dir).resolve(name)
+                    self._send(200, glb.read_bytes(), "model/gltf-binary")
+                except OpTreeError as e:
+                    self._send(404, f"error: {e}".encode(), "text/plain")
             elif self.path.startswith("/preview.png"):
                 png = state.workdir / "out" / "preview.png"
                 if png.exists():
@@ -155,6 +178,68 @@ def make_server(session_path, workdir, parts_dir, llm_factory,
                     self._send_json(200, {"ok": True})
                 except (OrchestratorError, json.JSONDecodeError,
                         ValueError, TypeError, KeyError) as e:
+                    self._send_json(200, {"ok": False, "error": str(e)})
+                return
+            if self.path == "/api/edit":
+                try:
+                    payload = json.loads(
+                        self.rfile.read(int(self.headers["Content-Length"])))
+                    session = Session(state.session_path)
+                    if session.tree is None:
+                        raise OrchestratorError("no session tree to edit")
+                    op = payload["op"]
+                    t = session.tree
+                    if op == "add_part":
+                        t = add_part(t, payload["node_id"], payload["part"], payload["parent"],
+                                   payload["location"], payload["rotation_deg"], payload["scale"])
+                    elif op == "update_transform":
+                        t = update_transform(t, payload["node_id"],
+                                             location=payload.get("location"),
+                                             rotation_deg=payload.get("rotation_deg"),
+                                             scale=payload.get("scale"))
+                    elif op == "remove_node":
+                        t = remove_node(t, payload["node_id"])
+                    elif op == "cut_slot":
+                        t = cut_slot(t, payload["node_id"], payload["target"],
+                                     payload["size"], payload["location"])
+                    else:
+                        raise OrchestratorError(f"unknown edit op {op!r}")
+                    session.tree = t
+                    session.save()
+                    state.result = build(session.tree, state.workdir,
+                                         parts_dir=state.parts_dir)
+                    state.built = True
+                    render_glb(final_glb(session.tree, state.result),
+                               state.workdir / "out" / "preview.png", state.workdir)
+                    tree = {"nodes": {k: v.model_dump(exclude_defaults=True)
+                            for k, v in t.nodes.items()}}
+                    self._send_json(200, {"ok": True, "tree": tree, "nodes": list(session.tree.nodes)})
+                except (OrchestratorError, OpTreeError, json.JSONDecodeError,
+                        ValidationError, ValueError, TypeError, KeyError) as e:
+                    self._send_json(200, {"ok": False, "error": str(e)})
+                return
+            if self.path == "/api/snap":
+                try:
+                    payload = json.loads(
+                        self.rfile.read(int(self.headers["Content-Length"])))
+                    part = payload["part"]
+                    point = payload["target_point"]
+                    normal = payload["target_normal"]
+                    candidates = payload.get("candidates", [])
+                    hit = snap_position(
+                        [(tuple(c["position"]), tuple(c["normal"])) for c in candidates],
+                        tuple(point), radius=payload.get("radius", 2.0))
+                    if hit is None:
+                        self._send_json(200, {"snapped": False})
+                    else:
+                        pos, n = hit
+                        self._send_json(200, {
+                            "snapped": True,
+                            "location": list(pos),
+                            "rotation_deg": list(align_rotation_deg(tuple(normal))),
+                            "snap_point": list(pos),
+                        })
+                except (OrchestratorError, ValueError, TypeError, KeyError) as e:
                     self._send_json(200, {"ok": False, "error": str(e)})
                 return
             if self.path != "/api/apply":

@@ -24,16 +24,25 @@ class Session:
               focus_node: str | None = None) -> ApplyResult:
         result = run_apply(llm, instruction, self.tree,
                            available_parts=available_parts, focus_node=focus_node)
+        previous = self.tree
+        self.tree = result.tree
+        try:
+            self.save()
+        except Exception:
+            self.tree = previous  # failed write: keep memory consistent with disk
+            raise
+        return result
+
+    def save(self) -> None:
+        """Atomically persist the current tree (same format apply uses)."""
         self.path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.path.with_suffix(".tmp")
         tmp.write_text(
             json.dumps(
                 {"nodes": {k: v.model_dump(exclude_defaults=True)
-                           for k, v in result.tree.nodes.items()}},
+                           for k, v in self.tree.nodes.items()}},
                 indent=2,
             ),
             encoding="utf-8",
         )
         os.replace(tmp, self.path)
-        self.tree = result.tree
-        return result

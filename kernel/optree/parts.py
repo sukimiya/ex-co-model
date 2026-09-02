@@ -70,6 +70,21 @@ class PartsIndex:
         size = "x".join(_fmt_dim(d) for d in dims) + "m" if dims else "unknown"
         return f"{name} — {desc}; mount: {mount}; size: {size}"
 
+    def metadata(self, name: str) -> dict:
+        """Editor-facing part metadata: description, approx_size_m, snap_points."""
+        if name not in self._parts:
+            raise OpTreeError(
+                f"unknown part {name!r}; available: {sorted(self._parts)}"
+            )
+        entry = self._parts[name]
+        snap = entry.get("snap") or {}
+        return {
+            "name": name,
+            "description": entry.get("description", ""),
+            "approx_size_m": snap.get("approx_size_m") or [],
+            "snap_points": list(entry.get("snap_points", [])),
+        }
+
     def snap_points(self, name: str) -> list[dict]:
         """Socket points in part-local coordinates: [{"position": [x,y,z], "normal": [x,y,z]}]."""
         if name not in self._parts:
