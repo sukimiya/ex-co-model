@@ -69,7 +69,7 @@ def build(tree: OpTree, workdir: Path, parts_dir: Path | None = None) -> BuildRe
             elif node.op == "attach_part":
                 script += emit.emit_attach_part(
                     str(glbs[name]), str(glbs[node.inputs[0]]),
-                    str(index.resolve(node.params.part)), node.params,
+                    str(index.resolve(node.params.part)), node.params, name,
                 )
             elif node.op == "set_material":
                 script += emit.emit_set_material(str(glbs[name]), str(glbs[node.inputs[0]]), node.params)

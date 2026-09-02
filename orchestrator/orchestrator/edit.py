@@ -22,6 +22,16 @@ def _node_or_raise(tree: OpTree, node_id: str):
     return tree.nodes[node_id]
 
 
+def _rewire_exports(nodes: dict, anchor: str, new_node: str) -> None:
+    """Repoint export_fbx nodes that consume `anchor` at the fresh tail node,
+    mirroring the LLM convention of keeping the final export on final geometry."""
+    for child in nodes.values():
+        if child["op"] == "export_fbx":
+            child["inputs"] = [
+                (new_node if ref == anchor else ref) for ref in child["inputs"]
+            ]
+
+
 def add_part(tree: OpTree, node_id: str, part: str, parent: str,
              location, rotation_deg, scale) -> OpTree:
     nodes = _dump(tree)
@@ -33,6 +43,7 @@ def add_part(tree: OpTree, node_id: str, part: str, parent: str,
         "params": {"part": part, "location": list(location),
                    "rotation_deg": list(rotation_deg), "scale": scale},
     }
+    _rewire_exports(nodes, parent, node_id)
     return _validated(nodes)
 
 
@@ -84,4 +95,5 @@ def cut_slot(tree: OpTree, node_id: str, target: str,
     nodes[node_id] = {
         "op": "boolean_subtract", "inputs": [target, f"{node_id}_cutter"],
     }
+    _rewire_exports(nodes, target, node_id)
     return _validated(nodes)

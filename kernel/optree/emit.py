@@ -128,9 +128,11 @@ def emit_set_material(out: str, src: str, p: SetMaterialParams) -> str:
     )
 
 
-def emit_attach_part(out: str, parent: str, part_path: str, p: AttachPartParams) -> str:
+def emit_attach_part(out: str, parent: str, part_path: str, p: AttachPartParams,
+                     name: str) -> str:
     """Import parent + library part, place the part as a rigid body (meters/degrees,
-    part origin in world frame), export combined scene."""
+    part origin in world frame), export combined scene. The rig Empty is named
+    after the node so downstream tools can locate it in the GLB."""
     return (
         _import_glb(parent)
         + "bpy.ops.object.select_all(action='DESELECT')\n"
@@ -138,6 +140,7 @@ def emit_attach_part(out: str, parent: str, part_path: str, p: AttachPartParams)
         + "import math\n"
         + "bpy.ops.object.empty_add(type='PLAIN_AXES')\n"
         + "rig = bpy.context.active_object\n"
+        + f"rig.name = {name!r}\n"
         + "for o in imported:\n"
         + "    o.parent = rig\n"
         + f"rig.location = {_fmt_vec3(p.location)}\n"

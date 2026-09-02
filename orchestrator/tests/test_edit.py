@@ -27,6 +27,24 @@ def test_add_part_unknown_parent_rejected():
         add_part(make_tree(), "x", "comm_antenna", "nope", [0, 0, 0], [0, 0, 0], 1.0)
 
 
+def test_add_part_rewires_export_pointing_at_parent():
+    t = add_part(make_tree(), "gun2", "pdc_turret", "gun", [5, 0, 6], [0, 0, 0], 1.0)
+    assert t.nodes["out"].inputs == ["gun2"]
+
+
+def test_add_part_leaves_export_on_other_branch_alone():
+    t = add_part(make_tree(), "ant", "comm_antenna", "hull", [0, 0, 3], [0, 0, 0], 1.0)
+    assert t.nodes["out"].inputs == ["gun"]  # export never pointed at "hull"
+
+
+def test_add_part_without_export_unchanged():
+    tree = OpTree.model_validate({"nodes": {
+        "hull": {"op": "primitive", "params": {"type": "box", "size": [40, 8, 6]}},
+    }})
+    t = add_part(tree, "ant", "comm_antenna", "hull", [0, 0, 3], [0, 0, 0], 1.0)
+    assert set(t.nodes) == {"hull", "ant"}
+
+
 def test_update_transform():
     t = update_transform(make_tree(), "gun", location=[9, 1, 3])
     assert tuple(t.nodes["gun"].params.location) == (9, 1, 3)
@@ -64,3 +82,21 @@ def test_cut_slot():
 def test_cut_slot_duplicate_name_rejected():
     with pytest.raises(OrchestratorError):
         cut_slot(make_tree(), "hull", "hull", [1, 1, 1], [0, 0, 0])
+
+
+def test_cut_slot_rewires_export_pointing_at_target():
+    t = cut_slot(make_tree(), "slot1", "gun", [4, 2, 2], [10, 0, 3])
+    assert t.nodes["out"].inputs == ["slot1"]
+
+
+def test_cut_slot_leaves_export_on_other_branch_alone():
+    t = cut_slot(make_tree(), "slot1", "hull", [4, 2, 2], [10, 0, 3])
+    assert t.nodes["out"].inputs == ["gun"]  # export never pointed at "hull"
+
+
+def test_cut_slot_without_export_unchanged():
+    tree = OpTree.model_validate({"nodes": {
+        "hull": {"op": "primitive", "params": {"type": "box", "size": [40, 8, 6]}},
+    }})
+    t = cut_slot(tree, "slot1", "hull", [4, 2, 2], [10, 0, 3])
+    assert set(t.nodes) == {"hull", "slot1_cutter", "slot1"}

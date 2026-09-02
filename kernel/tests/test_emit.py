@@ -67,6 +67,7 @@ def test_emit_attach_part_imports_both_and_transforms():
         "/tmp/out.glb", "/tmp/parent.glb", "/lib/turret.glb",
         AttachPartParams(part="pdc_turret", location=(0, 0, 2),
                          rotation_deg=(0, 90, 0), scale=1.5),
+        "gun",
     )
     assert code.index("/tmp/parent.glb") < code.index("/lib/turret.glb")
     assert "import_scene.gltf" in code
@@ -75,6 +76,15 @@ def test_emit_attach_part_imports_both_and_transforms():
     assert "(0, 90, 0)" in code
     assert "1.5" in code
     assert "export_scene.gltf" in code
+
+
+def test_emit_attach_part_names_rig_after_node():
+    code = emit_attach_part(
+        "/tmp/out.glb", "/tmp/parent.glb", "/lib/turret.glb",
+        AttachPartParams(part="pdc_turret", location=(0, 0, 2)),
+        "pdc_turret_aft",
+    )
+    assert "rig = bpy.context.active_object\nrig.name = 'pdc_turret_aft'" in code
 
 
 def test_emit_set_material():
