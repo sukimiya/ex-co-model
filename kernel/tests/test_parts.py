@@ -1,9 +1,12 @@
 import json
+from pathlib import Path
 
 import pytest
 
 from optree.errors import OpTreeError
 from optree.parts import PartsIndex
+
+PARTS_DIR = Path(__file__).resolve().parents[2] / "parts"
 
 
 @pytest.fixture
@@ -78,3 +81,19 @@ def test_load_rejects_non_dict_top_level(tmp_path):
     (tmp_path / "index.json").write_text(json.dumps([1, 2]), encoding="utf-8")
     with pytest.raises(OpTreeError, match="invalid parts index"):
         PartsIndex.load(tmp_path)
+
+
+def test_snap_points_available():
+    index = PartsIndex.load(PARTS_DIR)
+    for name in index.names():
+        pts = index.snap_points(name)
+        assert pts, f"part {name} must define at least one snap point"
+        for p in pts:
+            assert "position" in p and "normal" in p
+            assert len(p["position"]) == 3 and len(p["normal"]) == 3
+
+
+def test_snap_points_parsed_from_entry():
+    idx = PartsIndex.load(PARTS_DIR)
+    p0 = idx.snap_points("pdc_turret")[0]
+    assert set(p0) == {"position", "normal"}
