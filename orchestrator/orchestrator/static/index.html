@@ -5,7 +5,7 @@
 <title>ex-co-model</title>
 <style>
   body { margin: 0; font-family: system-ui, sans-serif; background: #16181d; color: #ddd; display: flex; height: 100vh; }
-  #viewport { flex: 1; }
+  #viewport { flex: 1; position: relative; }
   #side { width: 340px; padding: 12px; display: flex; flex-direction: column; gap: 8px; border-left: 1px solid #333; }
   textarea { width: 100%; height: 80px; background: #222; color: #ddd; border: 1px solid #444; box-sizing: border-box; }
   button { padding: 8px; background: #3a6; color: #fff; border: 0; cursor: pointer; }
@@ -14,9 +14,31 @@
   #tree { flex: 1; overflow: auto; background: #111; padding: 8px; font-size: 11px; }
   h3 { margin: 4px 0; font-size: 13px; color: #888; }
   input, select { background: #222; color: #ddd; border: 1px solid #444; padding: 6px; }
+  #palette { width: 200px; padding: 12px; display: flex; flex-direction: column; gap: 8px; border-right: 1px solid #333; overflow: auto; }
+  .part { background: #222; border: 1px solid #444; padding: 8px; cursor: pointer; font-size: 13px; }
+  .part:hover { border-color: #3a6; }
+  .part .size { display: block; font-size: 11px; color: #888; margin-top: 2px; }
+  .part .desc { display: block; font-size: 11px; color: #777; margin-top: 2px; }
+  #toolbar { display: flex; flex-direction: column; gap: 4px; }
+  #toolbar button { background: #2a2e35; border: 1px solid #444; color: #ddd; text-align: left; }
+  #toolbar button.active { background: #3a6; border-color: #3a6; color: #fff; }
+  #hint { font-size: 12px; color: #bb9; white-space: pre-wrap; min-height: 16px; }
 </style>
 </head>
 <body>
+<div id="palette">
+  <h3>零件库</h3>
+  <div id="parts"></div>
+  <h3>工具</h3>
+  <div id="toolbar">
+    <button data-mode="select" class="active">选择</button>
+    <button data-mode="translate">移动</button>
+    <button data-mode="rotate">旋转</button>
+    <button data-mode="scale">缩放</button>
+    <button data-mode="cut">开槽</button>
+  </div>
+  <div id="hint"></div>
+</div>
 <div id="viewport"></div>
 <div id="side">
   <h3>指令</h3>
@@ -41,6 +63,7 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { TransformControls } from "three/addons/controls/TransformControls.js";
 
 const el = document.getElementById("viewport");
 const scene = new THREE.Scene();
@@ -57,6 +80,48 @@ key.position.set(30, -30, 40);
 scene.add(key);
 scene.add(new THREE.GridHelper(100, 20, 0x444444, 0x333333));
 
+// --- Coordinate conversion -------------------------------------------------
+// The viewer is glTF/three.js (Y-up); the OpTree/Blender world is Z-up.
+// blender (x,y,z) shows up in three.js as (x, z, -y).
+const b2t = (p) => new THREE.Vector3(p[0], p[2], -p[1]); // blender [x,y,z] -> three Vector3
+const t2b = (v) => [v.x, -v.z, v.y];                      // three Vector3 -> blender [x,y,z]
+// Basis-change matrix: v_three = M_B2T * v_blender.
+const M_B2T = new THREE.Matrix4().set(
+  1, 0, 0, 0,
+  0, 0, 1, 0,
+  0, -1, 0, 0,
+  0, 0, 0, 1);
+const M_T2B = M_B2T.clone().invert();
+// Blender euler XYZ (extrinsic, R = Rz@Ry@Rx) has the same matrix layout as
+// three.js Euler order "ZYX", so angles carry over 1:1 after the basis change.
+function blenderEulerToThreeQuat(deg) {
+  const d = THREE.MathUtils.degToRad;
+  const e = new THREE.Euler(d(deg[0]), d(deg[1]), d(deg[2]), "ZYX");
+  const rb = new THREE.Matrix4().makeRotationFromEuler(e);
+  const rt = M_B2T.clone().multiply(rb).multiply(M_T2B);
+  return new THREE.Quaternion().setFromRotationMatrix(rt);
+}
+function threeQuatToBlenderEuler(q) {
+  const rt = new THREE.Matrix4().makeRotationFromQuaternion(q);
+  const rb = M_T2B.clone().multiply(rt).multiply(M_B2T);
+  const e = new THREE.Euler().setFromRotationMatrix(rb, "ZYX");
+  const r = THREE.MathUtils.radToDeg;
+  return [r(e.x), r(e.y), r(e.z)];
+}
+
+// --- Editor state ------------------------------------------------------------
+let tree = null;                 // last known OpTree (nodes dict) from the server
+let partsMeta = {};              // part name -> {description, approx_size_m, snap_points}
+const partTemplates = {};        // part name -> loaded GLTF scene (template)
+const nodeObjects = new Map();   // attach_part nodeId -> Object3D rig in the scene
+let selected = null;             // selected attach_part nodeId
+let mode = "select";             // select | translate | rotate | scale | cut | place
+let placing = null;              // {part, ghost, pending:{location, rotation_deg}}
+let framed = false;              // camera framed the model at least once
+
+const hint = document.getElementById("hint");
+const statusEl = document.getElementById("status");
+
 let current = null;
 function frame(obj) {
   const box = new THREE.Box3().setFromObject(obj);
@@ -66,16 +131,429 @@ function frame(obj) {
   controls.target.copy(center);
   controls.update();
 }
+
+// Map loaded GLB objects back to OpTree attach_part nodes. Blender exports the
+// attach_part rig as an auto-named "Empty"/"Empty.001"/... (not the node name),
+// so match each node by comparing its expected world location (converted to
+// three.js coords) against object world positions.
+function tagNodes() {
+  nodeObjects.clear();
+  if (!tree || !current) return;
+  current.updateMatrixWorld(true);
+  const rigs = [];
+  current.traverse((o) => {
+    if (o === current || o.isMesh) return;
+    let hasMesh = false;
+    o.traverse((c) => { if (c.isMesh) hasMesh = true; });
+    if (hasMesh) rigs.push(o);
+  });
+  const used = new Set();
+  for (const [nodeId, node] of Object.entries(tree.nodes)) {
+    if (node.op !== "attach_part") continue;
+    let rig = current.getObjectByName(nodeId); // works if the rig ever gets named
+    if (!rig || used.has(rig)) {
+      const expected = b2t(node.params.location);
+      let best = null, bestD = 0.05;
+      for (const r of rigs) {
+        if (used.has(r)) continue;
+        const d = r.getWorldPosition(new THREE.Vector3()).distanceTo(expected);
+        if (d < bestD) { best = r; bestD = d; }
+      }
+      rig = best;
+    }
+    if (rig) {
+      used.add(rig);
+      nodeObjects.set(nodeId, rig);
+      rig.traverse((o) => { o.userData.nodeId = nodeId; });
+    }
+  }
+}
+
 function loadModel() {
   new GLTFLoader().load("/model.glb?t=" + Date.now(), (g) => {
     if (current) scene.remove(current);
     current = g.scene;
     scene.add(current);
-    frame(current);
+    tagNodes();
+    if (!framed) { frame(current); framed = true; }
+    // Reattach the gizmo if the selected node still exists after a reload.
+    if (selected && nodeObjects.has(selected)) {
+      gizmo.attach(nodeObjects.get(selected));
+    } else {
+      selectNode(null);
+    }
   }, undefined, () => {
-    document.getElementById("status").textContent = "模型加载失败（可能还没有模型）";
+    statusEl.textContent = "模型加载失败（可能还没有模型）";
   });
 }
+
+// --- Selection + transform gizmo ---------------------------------------------
+const gizmo = new TransformControls(camera, renderer.domElement);
+scene.add(gizmo);
+let snapPreview = null;   // ghost shown at the snapped pose during a drag
+let lastSnap = null;      // latest /api/snap hit for the active drag/placement
+
+function selectNode(nodeId) {
+  selected = nodeId;
+  if (nodeId && nodeObjects.has(nodeId)) {
+    gizmo.attach(nodeObjects.get(nodeId));
+    hint.textContent = `已选中：${nodeId}（Delete 删除）`;
+  } else {
+    gizmo.detach();
+    if (mode !== "place") hint.textContent = "";
+  }
+}
+
+gizmo.addEventListener("dragging-changed", (e) => {
+  controls.enabled = !e.value;
+  if (e.value) {
+    lastSnap = null;
+  } else {
+    onGizmoDrop();
+  }
+});
+// While translating, ask the server for a snap near the dragged position and
+// ghost-preview the snapped pose.
+gizmo.addEventListener("objectChange", () => {
+  if (gizmo.mode !== "translate" || !selected) return;
+  maybeSnap(selected);
+});
+
+async function maybeSnap(excludeNode) {
+  const now = performance.now();
+  if (maybeSnap._at && now - maybeSnap._at < 120) return;
+  maybeSnap._at = now;
+  const obj = nodeObjects.get(excludeNode);
+  if (!obj) return;
+  const pos = obj.getWorldPosition(new THREE.Vector3());
+  const hit = raycastModel(lastPointer, excludeNode);
+  const body = {
+    part: tree.nodes[excludeNode].params.part,
+    target_point: t2b(pos),
+    target_normal: hit ? t2b(hit.normal) : [0, 0, 1],
+    candidates: worldSnapPoints(excludeNode),
+    radius: 2.0,
+  };
+  const r = await (await fetch("/api/snap", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  })).json();
+  if (r.snapped) {
+    lastSnap = r;
+    showSnapPreview(tree.nodes[excludeNode].params.part, r.location, r.rotation_deg);
+  } else {
+    lastSnap = null;
+    hideSnapPreview();
+  }
+}
+
+function showSnapPreview(part, location, rotationDeg) {
+  hideSnapPreview();
+  const tpl = partTemplates[part];
+  if (!tpl) return;
+  snapPreview = tpl.clone(true);
+  snapPreview.traverse((o) => {
+    if (o.isMesh) {
+      o.material = o.material.clone();
+      o.material.transparent = true;
+      o.material.opacity = 0.4;
+    }
+  });
+  snapPreview.position.copy(b2t(location));
+  snapPreview.quaternion.copy(blenderEulerToThreeQuat(rotationDeg));
+  scene.add(snapPreview);
+}
+function hideSnapPreview() {
+  if (snapPreview) { scene.remove(snapPreview); snapPreview = null; }
+}
+
+async function onGizmoDrop() {
+  const nodeId = selected;
+  hideSnapPreview();
+  if (!nodeId || !nodeObjects.has(nodeId)) { lastSnap = null; return; }
+  const obj = nodeObjects.get(nodeId);
+  const body = { op: "update_transform", node_id: nodeId };
+  if (lastSnap && gizmo.mode === "translate") {
+    body.location = lastSnap.location;
+    body.rotation_deg = lastSnap.rotation_deg;
+  } else {
+    body.location = t2b(obj.getWorldPosition(new THREE.Vector3()));
+    body.rotation_deg = threeQuatToBlenderEuler(
+      obj.getWorldQuaternion(new THREE.Quaternion()));
+    body.scale = obj.getWorldScale(new THREE.Vector3()).x;
+  }
+  lastSnap = null;
+  const r = await postEdit(body);
+  if (!r.ok) statusEl.textContent = "变换失败：" + r.error;
+}
+
+// --- Snap points of placed parts (world frame, Blender coords) ----------------
+function worldSnapPoints(excludeNode) {
+  const out = [];
+  if (!tree) return out;
+  for (const [nodeId, obj] of nodeObjects) {
+    if (nodeId === excludeNode) continue;
+    const meta = partsMeta[tree.nodes[nodeId].params.part];
+    if (!meta) continue;
+    for (const sp of meta.snap_points) {
+      const w = obj.localToWorld(b2t(sp.position));
+      const n = b2t(sp.normal).transformDirection(obj.matrixWorld);
+      out.push({ position: t2b(w), normal: t2b(n) });
+    }
+  }
+  return out;
+}
+
+// --- Raycasting ---------------------------------------------------------------
+const raycaster = new THREE.Raycaster();
+let lastPointer = new THREE.Vector2();
+function pointerNDC(e) {
+  const r = renderer.domElement.getBoundingClientRect();
+  return new THREE.Vector2(
+    ((e.clientX - r.left) / r.width) * 2 - 1,
+    -((e.clientY - r.top) / r.height) * 2 + 1);
+}
+function raycastModel(ndc, excludeNode) {
+  if (!current) return null;
+  raycaster.setFromCamera(ndc, camera);
+  const hits = raycaster.intersectObject(current, true)
+    .filter((h) => !excludeNode || h.object.userData.nodeId !== excludeNode);
+  if (!hits.length) return null;
+  const h = hits[0];
+  const n = h.face.normal.clone().transformDirection(h.object.matrixWorld);
+  return { point: h.point, normal: n, nodeId: h.object.userData.nodeId || null };
+}
+
+// --- The node whose GLB the viewer displays (parent/target for new ops) --------
+function displayRoot() {
+  if (!tree) return null;
+  for (const [name, node] of Object.entries(tree.nodes)) {
+    if (node.op === "export_fbx") return node.inputs[0];
+  }
+  const referenced = new Set();
+  for (const node of Object.values(tree.nodes)) {
+    for (const i of node.inputs || []) referenced.add(i);
+  }
+  let root = null;
+  for (const name of Object.keys(tree.nodes)) {
+    if (!referenced.has(name)) root = name; // last sink in insertion order
+  }
+  return root;
+}
+
+function genId(base) {
+  let i = 1;
+  while (tree && tree.nodes[`${base}_${i}`]) i++;
+  return `${base}_${i}`;
+}
+
+async function postEdit(body) {
+  const r = await (await fetch("/api/edit", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  })).json();
+  if (r.ok) {
+    await refreshState();
+    loadModel();
+  }
+  return r;
+}
+
+// --- Placement (click a palette part, then click the model) --------------------
+async function startPlacement(part) {
+  cancelPlacement();
+  setMode("place");
+  placing = { part, ghost: null, pending: null };
+  hint.textContent = `放置 ${part}：点击模型表面（Esc 取消）`;
+  if (!partTemplates[part]) {
+    partTemplates[part] = await new Promise((resolve, reject) => {
+      new GLTFLoader().load("/part.glb?name=" + encodeURIComponent(part),
+        (g) => resolve(g.scene), undefined, reject);
+    }).catch(() => null);
+  }
+  if (!partTemplates[part]) {
+    hint.textContent = "零件加载失败：" + part;
+    placing = null;
+    setMode("select");
+    return;
+  }
+  const ghost = partTemplates[part].clone(true);
+  ghost.traverse((o) => {
+    if (o.isMesh) {
+      o.material = o.material.clone();
+      o.material.transparent = true;
+      o.material.opacity = 0.5;
+    }
+  });
+  ghost.visible = false;
+  scene.add(ghost);
+  placing.ghost = ghost;
+}
+
+function cancelPlacement() {
+  if (placing && placing.ghost) scene.remove(placing.ghost);
+  placing = null;
+}
+
+// Rotation aligning the part mount axis (Blender +Z == three +Y) to a surface
+// normal; mirrors the server's align_rotation_deg for non-snapped placement.
+function alignQuatToNormal(normalThree) {
+  return new THREE.Quaternion().setFromUnitVectors(
+    new THREE.Vector3(0, 1, 0), normalThree.clone().normalize());
+}
+
+async function updateGhost(ndc) {
+  if (!placing || !placing.ghost) return;
+  const now = performance.now();
+  if (updateGhost._at && now - updateGhost._at < 100) return;
+  updateGhost._at = now;
+  const hit = raycastModel(ndc);
+  if (!hit) { placing.ghost.visible = false; placing.pending = null; return; }
+  const body = {
+    part: placing.part,
+    target_point: t2b(hit.point),
+    target_normal: t2b(hit.normal),
+    candidates: worldSnapPoints(null),
+    radius: 2.0,
+  };
+  const r = await (await fetch("/api/snap", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  })).json();
+  if (!placing || !placing.ghost) return; // cancelled while the snap call flew
+  let location, rotationDeg;
+  if (r.snapped) {
+    location = r.location;
+    rotationDeg = r.rotation_deg;
+  } else {
+    location = t2b(hit.point);
+    rotationDeg = threeQuatToBlenderEuler(alignQuatToNormal(hit.normal));
+  }
+  placing.pending = { location, rotation_deg: rotationDeg };
+  placing.ghost.position.copy(b2t(location));
+  placing.ghost.quaternion.copy(blenderEulerToThreeQuat(rotationDeg));
+  placing.ghost.visible = true;
+}
+
+async function commitPlacement() {
+  if (!placing || !placing.pending || !tree) return;
+  const parent = displayRoot();
+  const body = {
+    op: "add_part",
+    node_id: genId(placing.part),
+    part: placing.part,
+    parent,
+    location: placing.pending.location,
+    rotation_deg: placing.pending.rotation_deg,
+    scale: 1,
+  };
+  const r = await postEdit(body);
+  if (r.ok) {
+    statusEl.textContent = `已添加 ${body.node_id}`;
+  } else {
+    statusEl.textContent = "添加失败：" + r.error;
+    cancelPlacement();
+    setMode("select");
+  }
+}
+
+// --- Cut tool ------------------------------------------------------------------
+async function commitCut(ndc) {
+  const hit = raycastModel(ndc);
+  if (!hit || !tree) return;
+  const body = {
+    op: "cut_slot",
+    node_id: genId("cut"),
+    target: displayRoot(),
+    size: [2, 2, 2],
+    location: t2b(hit.point),
+  };
+  statusEl.textContent = "开槽中…";
+  const r = await postEdit(body);
+  statusEl.textContent = r.ok ? `已开槽：${body.node_id}` : "开槽失败：" + r.error;
+}
+
+// --- Toolbar / modes -------------------------------------------------------------
+function setMode(m) {
+  if (mode === "place" && m !== "place") cancelPlacement();
+  mode = m;
+  for (const b of document.querySelectorAll("#toolbar button")) {
+    b.classList.toggle("active", b.dataset.mode === m);
+  }
+  if (m === "translate" || m === "rotate" || m === "scale") {
+    gizmo.setMode(m);
+    hint.textContent = selected ? `已选中：${selected}` : "先点击一个零件";
+  } else if (m === "cut") {
+    selectNode(null);
+    hint.textContent = "开槽：点击模型表面（2×2×2）";
+  } else if (m === "select") {
+    hint.textContent = "";
+  }
+  gizmo.visible = m !== "cut" && m !== "place";
+}
+for (const b of document.querySelectorAll("#toolbar button")) {
+  b.onclick = () => setMode(b.dataset.mode);
+}
+
+// --- Pointer / keyboard events ---------------------------------------------------
+let downAt = null;
+renderer.domElement.addEventListener("pointerdown", (e) => {
+  downAt = [e.clientX, e.clientY];
+});
+renderer.domElement.addEventListener("pointermove", (e) => {
+  lastPointer = pointerNDC(e);
+  if (mode === "place" && placing) updateGhost(lastPointer);
+});
+renderer.domElement.addEventListener("pointerup", (e) => {
+  if (!downAt) return;
+  const dx = e.clientX - downAt[0], dy = e.clientY - downAt[1];
+  downAt = null;
+  if (dx * dx + dy * dy > 25) return; // it was a drag, not a click
+  if (gizmo.dragging) return;
+  const ndc = pointerNDC(e);
+  if (mode === "place") {
+    commitPlacement();
+  } else if (mode === "cut") {
+    commitCut(ndc);
+  } else {
+    const hit = raycastModel(ndc);
+    selectNode(hit ? hit.nodeId : null);
+    if (mode !== "select" && !selected) hint.textContent = "先点击一个零件";
+  }
+});
+window.addEventListener("keydown", (e) => {
+  if (e.target.tagName === "TEXTAREA" || e.target.tagName === "INPUT") return;
+  if (e.key === "Escape") {
+    cancelPlacement();
+    setMode("select");
+    selectNode(null);
+  } else if ((e.key === "Delete" || e.key === "Backspace") && selected) {
+    postEdit({ op: "remove_node", node_id: selected }).then((r) => {
+      statusEl.textContent = r.ok ? `已删除 ${selected}` : "删除失败：" + r.error;
+      if (r.ok) selectNode(null);
+    });
+  }
+});
+
+// --- Parts palette -----------------------------------------------------------------
+async function loadPalette() {
+  const r = await (await fetch("/api/parts")).json();
+  const box = document.getElementById("parts");
+  box.innerHTML = "";
+  partsMeta = {};
+  for (const p of r.parts) {
+    partsMeta[p.name] = p;
+    const d = document.createElement("div");
+    d.className = "part";
+    const size = p.approx_size_m.map((v) => `${v}m`).join("×");
+    d.innerHTML = `<strong></strong><span class="size">${size}</span><span class="desc"></span>`;
+    d.querySelector("strong").textContent = p.name;
+    d.querySelector(".desc").textContent = p.description;
+    d.onclick = () => startPlacement(p.name);
+    box.appendChild(d);
+  }
+}
+
 window.onresize = () => {
   camera.aspect = el.clientWidth / el.clientHeight;
   camera.updateProjectionMatrix();
@@ -83,6 +561,7 @@ window.onresize = () => {
 };
 async function refreshState() {
   const s = await (await fetch("/api/state")).json();
+  tree = s.tree || null;
   document.getElementById("tree").textContent =
     s.tree ? JSON.stringify(s.tree, null, 1) : "(empty)";
   const focus = document.getElementById("focus");
@@ -97,32 +576,31 @@ async function refreshState() {
 }
 document.getElementById("go").onclick = async () => {
   const btn = document.getElementById("go");
-  const status = document.getElementById("status");
   const instruction = document.getElementById("instruction").value.trim();
   if (!instruction) return;
-  btn.disabled = true; status.textContent = "AI 建模中…（首次构建可能要一两分钟）";
+  btn.disabled = true; statusEl.textContent = "AI 建模中…（首次构建可能要一两分钟）";
   try {
     const r = await (await fetch("/api/apply", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ instruction, node: document.getElementById("focus").value || undefined }),
     })).json();
     if (r.ok) {
-      status.textContent = `完成（${r.rounds} 轮，${r.nodes} 节点）`;
+      statusEl.textContent = `完成（${r.rounds} 轮，${r.nodes} 节点）`;
       await refreshState();
       loadModel();
     } else {
-      status.textContent = "失败：" + r.error +
+      statusEl.textContent = "失败：" + r.error +
         (String(r.error).includes("MOONSHOT_API_KEY") ? "（请先在下方设置里填 API key）" : "");
     }
   } catch (e) {
-    status.textContent = "请求失败：" + e;
+    statusEl.textContent = "请求失败：" + e;
   }
   btn.disabled = false;
 };
 async function loadSettings() {
   const s = await (await fetch("/api/settings")).json();
   if (s.error) {
-    document.getElementById("status").textContent = "设置读取失败：" + s.error;
+    statusEl.textContent = "设置读取失败：" + s.error;
   }
   document.getElementById("cfg-endpoint").value = s.endpoint || "";
   document.getElementById("cfg-model").value = s.model || "";
@@ -151,13 +629,22 @@ document.getElementById("cfg-save").onclick = async () => {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   })).json();
-  document.getElementById("status").textContent = r.ok ? "设置已保存" : "保存失败：" + r.error;
+  statusEl.textContent = r.ok ? "设置已保存" : "保存失败：" + r.error;
   if (r.ok) document.getElementById("cfg-key").value = "";
 };
 loadSettings();
-refreshState();
-loadModel();
+refreshState().then(() => loadModel());
+loadPalette();
 (function loop() { requestAnimationFrame(loop); renderer.render(scene, camera); })();
+// Debug/testing handle used by the headless acceptance harness.
+window.__editor = {
+  THREE, scene, camera, renderer, gizmo, b2t, t2b, nodeObjects,
+  get tree() { return tree; },
+  get selected() { return selected; },
+  get mode() { return mode; },
+  get placing() { return placing; },
+};
+
 </script>
 </body>
 </html>
